@@ -1,0 +1,136 @@
+# ============================================================================
+# 达梦 MCP Server 配置
+# ----------------------------------------------------------------------------
+# 支持两种运行模式，通过 Spring Profile 切换（互不干扰）：
+#   1. stdio 模式（默认）：面向 Claude Desktop / Cursor 等本地 MCP 客户端，
+#      通过标准输入输出通信，不监听网络端口。
+#   2. http  模式：通过 SSE (Spring AI WebMVC) 暴露 MCP 服务，并提供内置 Web
+#      管理页面 + REST API，可在运行时动态添加/删除/测试数据源。
+#
+# 切换方式：
+#   - 默认 stdio：java -jar dameng-mcp-server.jar
+#   - http  模式：java -jar dameng-mcp-server.jar --spring.profiles.active=http
+#                 或设置环境变量 SPRING_PROFILES_ACTIVE=http
+#
+# 生产环境建议使用外部配置文件覆盖数据源配置：
+#   java -jar dameng-mcp-server.jar --spring.config.location=file:/path/to/application.yml
+# ============================================================================
+
+spring:
+  main:
+    banner-mode: off
+  # 默认激活 stdio 模式
+  profiles:
+    active: http
+  ai:
+    mcp:
+      server:
+        name: dameng-mcp-server
+        version: 2.0.0
+
+# 动态数据源持久化文件（http 模式下 Web 新增的数据源写入此文件，重启自动恢复）
+mcp:
+  # 持久化文件路径，默认位于用户主目录 ~/.dameng-mcp/datasources.json
+  dynamic-datasource-file: ${user.home}/.dameng-mcp/datasources.json
+  # Web 管理接口访问令牌（可选）。非空时，REST API 需携带请求头 X-Access-Token。
+  web:
+    access-token: "teaede121"
+  # 内置默认数据源（可被外部配置覆盖）
+  datasources:
+  - name: cjw_news_extracter_v2
+    description: "长江委门户新闻库"
+    type: dameng
+    url: jdbc:dm://10.6.98.195:5236
+    username: CJW_NEWS_EXTRACTER_V2
+    password: cjw_news_extracter_v2@Raofan
+    readonly: true
+  - name: cjw_plat_v5
+    description: "长江委门户生产库"
+    type: dameng
+    url: jdbc:dm://10.6.98.195:5236
+    username: CJW_PLAT_V5
+    password: cjw_plat_v5@Fuxiang
+    readonly: true
+  - name: cjw_plat_v5_test
+    description: "长江委门户测试库"
+    type: dameng
+    url: jdbc:dm://10.6.118.206:8555
+    username: CJW_PLAT_V5
+    password: cjw_plat_v5@Fuxiang
+    readonly: false
+  - name: STBC_QZ&SZYGL_QZ
+    description: "水土保持与水资源的数据库"
+    type: dameng
+    url: jdbc:dm://10.6.98.56:5236
+    username: NRJS_READER
+    password: j!ccttF8w+mD
+    readonly: true
+  - name: AQJD_PROD
+    description: "智慧安监生产库"
+    type: dameng
+    url: jdbc:dm://10.6.98.114:5236/SLAQJD_PROD
+    username: SLAQJD_PROD
+    password: Slaqjd@2025%Prod
+    readonly: false
+
+# ============================================================================
+# stdio 模式配置
+# ============================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: stdio
+  main:
+    # stdio 模式不启动 Web 容器
+    web-application-type: none
+  ai:
+    mcp:
+      server:
+        # 启用 stdio 传输
+        stdio: true
+
+logging:
+  level:
+    # stdio 模式使用标准输出通信，任何日志都会污染协议，故关闭
+    root: OFF
+
+# ============================================================================
+# http 模式配置（SSE + Web 管理页面）
+# ============================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: http
+  main:
+    # http 模式启动 Servlet Web 容器
+    web-application-type: servlet
+  ai:
+    mcp:
+      server:
+        # Spring AI 1.1.x：通过 protocol 选择传输方式。
+        # STREAMABLE：MCP 2025-06-18 Streamable HTTP 传输，单一端点 /mcp（GET 建流 + POST 发消息）。
+        # 客户端连接地址必须指向 http://<host>:<port>/mcp（不能只填根地址，否则命中静态欢迎页返回 406）。
+        stdio: false
+        protocol: STREAMABLE
+
+server:
+  port: 8080
+  # ------------------------------------------------------------------------
+  # 【强烈建议】无内网隔离/公网暴露时启用 HTTPS，否则 X-Access-Token 会明文传输被窃听。
+  # 生成自签名证书示例：
+  #   keytool -genkeypair -alias mcp -keyalg RSA -keysize 2048 -storetype PKCS12 \
+  #           -keystore mcp-keystore.p12 -validity 3650 -storepass changeit
+  # 然后取消下面注释并填写实际路径/口令（或改用 Nginx/Caddy 反向代理终止 TLS）。
+  # ssl:
+  #   enabled: true
+  #   key-store: file:/path/to/mcp-keystore.p12
+  #   key-store-type: PKCS12
+  #   key-store-password: changeit
+  #   key-alias: mcp
+
+logging:
+  level:
+    root: INFO
+    com.dameng.mcp: INFO
