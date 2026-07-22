@@ -3,6 +3,10 @@ package com.dameng.mcp.service;
 import com.alibaba.druid.pool.DruidDataSource;
 import com.dameng.mcp.adapter.DatabaseAdapterFactory;
 import com.dameng.mcp.adapter.DataSourceRegistry;
+import com.dameng.mcp.adapter.elasticsearch.ElasticsearchClientFactory;
+import com.dameng.mcp.adapter.elasticsearch.ElasticsearchRestClient;
+import com.dameng.mcp.adapter.redis.RedisClientFactory;
+import com.dameng.mcp.adapter.redis.RedisConnection;
 import com.dameng.mcp.config.DataSourcePersistence;
 import com.dameng.mcp.config.DataSourceProperties;
 import com.dameng.mcp.model.DataSourceInfo;
@@ -25,16 +29,22 @@ import java.util.Set;
 @Service
 public class DataSourceManager {
 
-    private static final Set<String> SUPPORTED_TYPES = Set.of("dameng", "oracle", "mysql");
+    private static final Set<String> SUPPORTED_TYPES = Set.of("dameng", "oracle", "mysql", "elasticsearch", "redis");
 
     private final DatabaseAdapterFactory factory;
+    private final ElasticsearchClientFactory esFactory;
+    private final RedisClientFactory redisFactory;
     private final DataSourceRegistry registry;
     private final DataSourcePersistence persistence;
 
     public DataSourceManager(DatabaseAdapterFactory factory,
+                             ElasticsearchClientFactory esFactory,
+                             RedisClientFactory redisFactory,
                              DataSourceRegistry registry,
                              DataSourcePersistence persistence) {
         this.factory = factory;
+        this.esFactory = esFactory;
+        this.redisFactory = redisFactory;
         this.registry = registry;
         this.persistence = persistence;
     }
@@ -44,8 +54,23 @@ public class DataSourceManager {
      * 供 {@code DataSourceConfig} 加载 yml 内置及持久化的动态数据源使用。
      */
     public void registerStartup(DataSourceProperties.DataSourceItem item) {
-        DatabaseAdapterFactory.Registration reg = factory.create(item);
-        registry.register(item.getName(), reg.adapter(), reg.dataSource(), item);
+        String type = item.getType() == null ? "" : item.getType().toLowerCase();
+        switch (type) {
+            case "elasticsearch": {
+                ElasticsearchRestClient client = esFactory.create(item);
+                registry.registerElasticsearch(item.getName(), client, item);
+                break;
+            }
+            case "redis": {
+                RedisConnection connection = redisFactory.create(item);
+                registry.registerRedis(item.getName(), connection, item);
+                break;
+            }
+            default: {
+                DatabaseAdapterFactory.Registration reg = factory.create(item);
+                registry.register(item.getName(), reg.adapter(), reg.dataSource(), item);
+            }
+        }
     }
 
     /**
@@ -68,9 +93,8 @@ public class DataSourceManager {
         // 标记为动态数据源
         item.setDynamic(true);
 
-        // 创建适配器（内部会 init 数据源并做连通性校验，失败抛异常）
-        DatabaseAdapterFactory.Registration reg = factory.create(item);
-        registry.register(item.getName(), reg.adapter(), reg.dataSource(), item);
+        // 根据类型创建并注册（内部会做连通性校验，失败抛异常）
+        registerStartup(item);
 
         // 持久化全部动态数据源
         persistence.saveAll(registry.listDynamicConfigs());
@@ -105,6 +129,15 @@ public class DataSourceManager {
      */
     public void testConnection(DataSourceProperties.DataSourceItem item) {
         validate(item);
+        String type = item.getType().toLowerCase();
+        if ("elasticsearch".equals(type)) {
+            esFactory.testConnection(item);
+            return;
+        }
+        if ("redis".equals(type)) {
+            redisFactory.testConnection(item);
+            return;
+        }
         DataSource ds = null;
         try {
             // createDataSource 内部执行 init，会真正建立连接并校验
@@ -121,7 +154,7 @@ public class DataSourceManager {
     }
 
     /**
-     * 校验数据源配置的必填字段与类型合法性。
+     * 校验数据源配置的必填字段与类型合法性（按类型区分必填项）。
      */
     private void validate(DataSourceProperties.DataSourceItem item) {
         if (item == null) {
@@ -133,9 +166,24 @@ public class DataSourceManager {
         if (!StringUtils.hasText(item.getType())) {
             throw new IllegalArgumentException("数据库类型(type)不能为空");
         }
-        if (!SUPPORTED_TYPES.contains(item.getType().toLowerCase())) {
-            throw new IllegalArgumentException("不支持的数据库类型: " + item.getType() + "。支持: dameng, oracle, mysql");
+        String type = item.getType().toLowerCase();
+        if (!SUPPORTED_TYPES.contains(type)) {
+            throw new IllegalArgumentException("不支持的数据源类型: " + item.getType()
+                    + "。支持: dameng, oracle, mysql, elasticsearch, redis");
         }
+        if ("elasticsearch".equals(type)) {
+            if (!StringUtils.hasText(item.getUrl())) {
+                throw new IllegalArgumentException("Elasticsearch 连接地址(url)不能为空，如 http://host:9200");
+            }
+            return;
+        }
+        if ("redis".equals(type)) {
+            if (!StringUtils.hasText(item.getHost()) && !StringUtils.hasText(item.getUrl())) {
+                throw new IllegalArgumentException("Redis 主机(host)不能为空（或使用 url: redis://host:port）");
+            }
+            return;
+        }
+        // 关系型数据源
         if (!StringUtils.hasText(item.getUrl())) {
             throw new IllegalArgumentException("连接 URL(url)不能为空");
         }

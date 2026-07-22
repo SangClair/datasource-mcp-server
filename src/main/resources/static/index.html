@@ -60,7 +60,7 @@
 <body>
 <header>
     <h1>Dameng MCP Server · 数据源管理</h1>
-    <div class="sub">HTTP (SSE) 模式 · 运行时动态管理达梦 / Oracle / MySQL 数据源</div>
+    <div class="sub">HTTP 模式 · 运行时动态管理达梦 / Oracle / MySQL / Elasticsearch / Redis 数据源</div>
 </header>
 
 <div class="container">
@@ -101,25 +101,43 @@
                 <input type="text" id="f-name" placeholder="全局唯一，如 finance-oracle">
             </div>
             <div class="form-item">
-                <label>数据库类型 (type) *</label>
-                <select id="f-type">
+                <label>数据源类型 (type) *</label>
+                <select id="f-type" onchange="toggleFields()">
                     <option value="dameng">dameng（达梦）</option>
                     <option value="oracle">oracle</option>
                     <option value="mysql">mysql</option>
+                    <option value="elasticsearch">elasticsearch</option>
+                    <option value="redis">redis</option>
                 </select>
             </div>
-            <div class="form-item full">
+            <div class="form-item full" id="item-url">
                 <label>连接 URL (url) *</label>
                 <input type="text" id="f-url" placeholder="jdbc:dm://192.168.1.100:5236">
-                <div class="hint">达梦: jdbc:dm://host:5236 · Oracle: jdbc:oracle:thin:@host:1521:ORCL · MySQL: jdbc:mysql://host:3306/db</div>
+                <div class="hint" id="hint-url">达梦: jdbc:dm://host:5236 · Oracle: jdbc:oracle:thin:@host:1521:ORCL · MySQL: jdbc:mysql://host:3306/db</div>
             </div>
-            <div class="form-item">
-                <label>用户名 (username) *</label>
-                <input type="text" id="f-username" placeholder="数据库用户名">
+            <div class="form-item" id="item-host">
+                <label>主机 (host) *</label>
+                <input type="text" id="f-host" placeholder="127.0.0.1">
             </div>
-            <div class="form-item">
+            <div class="form-item" id="item-port">
+                <label>端口 (port)</label>
+                <input type="number" id="f-port" placeholder="6379">
+            </div>
+            <div class="form-item" id="item-database">
+                <label>数据库索引 (database)</label>
+                <input type="number" id="f-database" placeholder="0">
+            </div>
+            <div class="form-item" id="item-username">
+                <label>用户名 (username) <span id="username-req">*</span></label>
+                <input type="text" id="f-username" placeholder="用户名">
+            </div>
+            <div class="form-item" id="item-password">
                 <label>密码 (password)</label>
-                <input type="password" id="f-password" placeholder="数据库密码">
+                <input type="password" id="f-password" placeholder="密码">
+            </div>
+            <div class="form-item" id="item-apikey">
+                <label>API Key (apiKey)</label>
+                <input type="password" id="f-apikey" placeholder="Elasticsearch API Key（与用户名/密码二选一）">
             </div>
             <div class="form-item full">
                 <label>描述 (description)</label>
@@ -127,7 +145,7 @@
             </div>
             <div class="form-item checkbox-row">
                 <input type="checkbox" id="f-readonly">
-                <label style="margin:0;">只读数据源（禁止 INSERT/UPDATE/DELETE）</label>
+                <label style="margin:0;">只读数据源（禁止写操作）</label>
             </div>
         </div>
         <div class="btns">
@@ -218,16 +236,61 @@
         }
     }
 
+    // 各数据源类型对应显示的字段容器 id
+    const FIELD_VISIBILITY = {
+        dameng: ['item-url', 'item-username', 'item-password'],
+        oracle: ['item-url', 'item-username', 'item-password'],
+        mysql: ['item-url', 'item-username', 'item-password'],
+        elasticsearch: ['item-url', 'item-username', 'item-password', 'item-apikey'],
+        redis: ['item-host', 'item-port', 'item-database', 'item-username', 'item-password']
+    };
+
+    const URL_HINTS = {
+        dameng: '达梦: jdbc:dm://host:5236 · Oracle: jdbc:oracle:thin:@host:1521:ORCL · MySQL: jdbc:mysql://host:3306/db',
+        elasticsearch: 'ES 基础地址: http://host:9200，多节点用英文逗号分隔，如 http://a:9200,https://b:9200'
+    };
+
+    // 根据当前所选类型显隐字段，并调整必填标记与提示文案
+    function toggleFields() {
+        const type = document.getElementById('f-type').value;
+        const visible = FIELD_VISIBILITY[type] || FIELD_VISIBILITY.dameng;
+        const all = ['item-url', 'item-host', 'item-port', 'item-database', 'item-username', 'item-password', 'item-apikey'];
+        all.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = visible.includes(id) ? '' : 'none';
+        });
+        // 用户名对关系型必填，ES/Redis 可选
+        const req = document.getElementById('username-req');
+        if (req) req.style.display = (type === 'elasticsearch' || type === 'redis') ? 'none' : '';
+        // URL 提示文案
+        const hint = document.getElementById('hint-url');
+        if (hint) hint.textContent = URL_HINTS[type] || URL_HINTS.dameng;
+    }
+
     function collectForm() {
-        return {
+        const type = document.getElementById('f-type').value;
+        const item = {
             name: document.getElementById('f-name').value.trim(),
-            type: document.getElementById('f-type').value,
+            type: type,
             url: document.getElementById('f-url').value.trim(),
             username: document.getElementById('f-username').value.trim(),
             password: document.getElementById('f-password').value,
             description: document.getElementById('f-description').value.trim(),
             readonly: document.getElementById('f-readonly').checked
         };
+        if (type === 'redis') {
+            const host = document.getElementById('f-host').value.trim();
+            const port = document.getElementById('f-port').value.trim();
+            const database = document.getElementById('f-database').value.trim();
+            if (host) item.host = host;
+            if (port) item.port = parseInt(port, 10);
+            if (database) item.database = parseInt(database, 10);
+        }
+        if (type === 'elasticsearch') {
+            const apiKey = document.getElementById('f-apikey').value.trim();
+            if (apiKey) item.apiKey = apiKey;
+        }
+        return item;
     }
 
     async function testConnection() {
@@ -254,11 +317,8 @@
             const json = await res.json();
             showMsg(json.message, json.success);
             if (json.success) {
-                document.getElementById('f-name').value = '';
-                document.getElementById('f-url').value = '';
-                document.getElementById('f-username').value = '';
-                document.getElementById('f-password').value = '';
-                document.getElementById('f-description').value = '';
+                ['f-name', 'f-url', 'f-host', 'f-port', 'f-database', 'f-username', 'f-password', 'f-apikey', 'f-description']
+                    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
                 document.getElementById('f-readonly').checked = false;
                 loadList();
             }
@@ -281,6 +341,7 @@
 
     initToken();
     initSseUrl();
+    toggleFields();
     loadList();
 </script>
 </body>

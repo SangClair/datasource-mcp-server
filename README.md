@@ -127,9 +127,9 @@ curl -X POST http://localhost:8080/api/datasources \
 
 ### 持久化
 
-- 通过 Web 新增的动态数据源会写入 JSON 文件，应用重启时自动恢复。
-- 文件路径由 `mcp.dynamic-datasource-file` 配置，默认 `${user.home}/.dameng-mcp/datasources.json`。
-- **密码以明文存储**，请务必：限制文件权限（如 `chmod 600`）、将服务部署在受信内网、使用只读数据库账户。
+- 通过 Web 新增的动态数据源会写入嵌入式 H2 数据库，应用重启时自动恢复。
+- H2 数据库文件基础路径由 `mcp.dynamic-datasource-h2` 配置，默认 `${user.home}/.dameng-mcp/datasources`（实际生成 `datasources.mv.db`）。
+- **密码以明文存储**，请务必：限制数据库文件权限（如 `chmod 600`）、将服务部署在受信内网、使用只读数据库账户。
 
 ### 访问令牌（保护 MCP 端点 + 管理 API）
 
@@ -579,7 +579,7 @@ dameng-mcp-server/
 │   │   ├── config/                                  # 配置类
 │   │   │   ├── DataSourceConfig.java                # 多数据源初始化（yml + 持久化动态源）
 │   │   │   ├── DataSourceProperties.java            # 数据源配置属性
-│   │   │   ├── DataSourcePersistence.java           # 动态数据源 JSON 持久化
+│   │   │   ├── DataSourcePersistence.java           # 动态数据源 H2 持久化
 │   │   │   └── McpToolConfig.java                   # MCP 工具注册
 │   │   ├── model/                                   # 数据模型
 │   │   │   ├── ColumnInfo.java                      # 列信息

@@ -19,9 +19,27 @@ public class DataSourceProperties {
     private List<DataSourceItem> datasources = new ArrayList<>();
 
     /**
-     * 动态数据源持久化文件路径（http 模式下 Web 新增的数据源写入此文件）。
+     * 动态数据源持久化 H2 数据库文件基础路径（http 模式下 Web 新增的数据源写入此 H2 库）。
+     * <p>
+     * 为不含扩展名的文件路径，H2 会自动生成 {@code <path>.mv.db}。
+     * 为空时默认位于 {@code ${user.home}/.dameng-mcp/datasources}。
+     * </p>
      */
-    private String dynamicDatasourceFile;
+    private String dynamicDatasourceH2;
+
+    /**
+     * 持久化 H2 数据库用户名，默认 {@code sa}。
+     */
+    private String dynamicDatasourceH2Username = "sa";
+
+    /**
+     * 持久化 H2 数据库密码，默认空。
+     * <p>
+     * 注意：H2 文件库在首次创建时固化账户密码，若已存在的库使用了其它密码，
+     * 修改此项后需保持与建库时一致，否则连接会报「Wrong user name or password」。
+     * </p>
+     */
+    private String dynamicDatasourceH2Password = "";
 
     /**
      * Web 管理接口相关配置
@@ -56,12 +74,16 @@ public class DataSourceProperties {
         private String description;
 
         /**
-         * 数据库类型：dameng / oracle / mysql
+         * 数据库类型：dameng / oracle / mysql / elasticsearch / redis
          */
         private String type;
 
         /**
-         * JDBC 连接 URL
+         * JDBC 连接 URL（关系型数据库）。
+         * <p>
+         * Elasticsearch 复用此字段作为节点地址（如 {@code http://host:9200}，
+         * 多节点以逗号分隔）；Redis 可选填 {@code redis://host:port} 代替 host/port。
+         * </p>
          */
         private String url;
 
@@ -108,5 +130,27 @@ public class DataSourceProperties {
          * 获取连接最大等待时间（毫秒）
          */
         private long maxWait = 60000;
+
+        // ---------- Elasticsearch / Redis 专用可选字段 ----------
+
+        /**
+         * 主机地址（Redis 必填，除非使用 {@code url} 形式）。
+         */
+        private String host;
+
+        /**
+         * 端口（Redis，默认 6379）。为 null 时使用默认值。
+         */
+        private Integer port;
+
+        /**
+         * Redis 数据库索引（默认 0）。为 null 时使用默认值。
+         */
+        private Integer database;
+
+        /**
+         * Elasticsearch API Key（可选，与 username/password 二选一）。
+         */
+        private String apiKey;
     }
 }

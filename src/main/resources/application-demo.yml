@@ -28,50 +28,52 @@ spring:
         name: dameng-mcp-server
         version: 2.0.0
 
-# 动态数据源持久化文件（http 模式下 Web 新增的数据源写入此文件，重启自动恢复）
+# 动态数据源持久化（http 模式下 Web 新增的数据源写入嵌入式 H2 库，重启自动恢复）
 mcp:
-  # 持久化文件路径，默认位于用户主目录 ~/.dameng-mcp/datasources.json
-  dynamic-datasource-file: ${user.home}/.dameng-mcp/datasources.json
+  # H2 数据库文件基础路径（不含扩展名），默认 ~/.dameng-mcp/datasources（实际生成 datasources.mv.db）
+  dynamic-datasource-h2: ${user.home}/.dameng-mcp/datasources
+  # H2 账号密码（默认 sa/空）。注意：文件库首次创建时固化密码，已建库后需保持一致。
+  dynamic-datasource-h2-username: sa
+  dynamic-datasource-h2-password: ""
   # Web 管理接口访问令牌（可选）。非空时，REST API 需携带请求头 X-Access-Token。
   web:
     access-token: "teaede121"
   # 内置默认数据源（可被外部配置覆盖）
   datasources:
-  - name: cjw_news_extracter_v2
-    description: "长江委门户新闻库"
+  - name: test
+    description: "测试库"
     type: dameng
     url: jdbc:dm://10.6.98.195:5236
-    username: CJW_NEWS_EXTRACTER_V2
-    password: cjw_news_extracter_v2@Raofan
+    username: username
+    password: password
     readonly: true
-  - name: cjw_plat_v5
-    description: "长江委门户生产库"
-    type: dameng
-    url: jdbc:dm://10.6.98.195:5236
-    username: CJW_PLAT_V5
-    password: cjw_plat_v5@Fuxiang
-    readonly: true
-  - name: cjw_plat_v5_test
-    description: "长江委门户测试库"
-    type: dameng
-    url: jdbc:dm://10.6.118.206:8555
-    username: CJW_PLAT_V5
-    password: cjw_plat_v5@Fuxiang
-    readonly: false
-  - name: STBC_QZ&SZYGL_QZ
-    description: "水土保持与水资源的数据库"
-    type: dameng
-    url: jdbc:dm://10.6.98.56:5236
-    username: NRJS_READER
-    password: j!ccttF8w+mD
-    readonly: true
-  - name: AQJD_PROD
-    description: "智慧安监生产库"
-    type: dameng
-    url: jdbc:dm://10.6.98.114:5236/SLAQJD_PROD
-    username: SLAQJD_PROD
-    password: Slaqjd@2025%Prod
-    readonly: false
+
+  # ------------------------------------------------------------------------
+  # Elasticsearch / Redis 数据源示例（默认注释，按需取消注释并修改后启用）。
+  # 二者与关系型数据库共用同一套注册/持久化/Web 管理逻辑，readonly 控制写操作。
+  # ------------------------------------------------------------------------
+  # Elasticsearch（兼容 7.x / 8.x，基于低级 REST 客户端）：
+  #   - url：ES 基础地址，多节点用英文逗号分隔，如 http://a:9200,https://b:9200
+  #   - 认证二选一：username/password（basic）或 apiKey（ES API Key）
+  # - name: es-log
+  #   description: "日志检索集群"
+  #   type: elasticsearch
+  #   url: http://127.0.0.1:9200
+  #   username: elastic
+  #   password: changeme
+  #   # apiKey: "base64EncodedApiKey"   # 与 username/password 二选一
+  #   readonly: true
+  #
+  # Redis（单机部署，host/port/database；也可用 url: redis://host:port/db）：
+  # - name: redis-cache
+  #   description: "业务缓存"
+  #   type: redis
+  #   host: 127.0.0.1
+  #   port: 6379
+  #   database: 0
+  #   # username: default   # Redis 6+ ACL 可选
+  #   password: ""
+  #   readonly: true
 
 # ============================================================================
 # stdio 模式配置

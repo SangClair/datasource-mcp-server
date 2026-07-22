@@ -1,6 +1,8 @@
 package com.dameng.mcp.adapter;
 
 import com.alibaba.druid.pool.DruidDataSource;
+import com.dameng.mcp.adapter.elasticsearch.ElasticsearchRestClient;
+import com.dameng.mcp.adapter.redis.RedisConnection;
 import com.dameng.mcp.config.DataSourceProperties;
 import com.dameng.mcp.model.DataSourceInfo;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +46,21 @@ public class DataSourceRegistry {
     private final Map<String, DataSourceProperties.DataSourceItem> configs = new LinkedHashMap<>();
 
     /**
+     * 数据源名称 -> Elasticsearch 客户端封装
+     */
+    private final Map<String, ElasticsearchRestClient> esClients = new LinkedHashMap<>();
+
+    /**
+     * 数据源名称 -> Redis 连接封装
+     */
+    private final Map<String, RedisConnection> redisClients = new LinkedHashMap<>();
+
+    /**
+     * 数据源名称 -> 资源关闭动作（注销时统一执行，屏蔽不同类型资源的关闭差异）
+     */
+    private final Map<String, Runnable> closers = new LinkedHashMap<>();
+
+    /**
      * 注册一个数据源适配器。
      *
      * @param name       数据源名称
@@ -56,6 +73,36 @@ public class DataSourceRegistry {
         adapters.put(name, adapter);
         dataSources.put(name, dataSource);
         configs.put(name, config);
+        final DataSource ds = dataSource;
+        closers.put(name, () -> {
+            if (ds instanceof DruidDataSource) {
+                try {
+                    ((DruidDataSource) ds).close();
+                } catch (Exception e) {
+                    log.warn("关闭数据源 [{}] 连接池时出错: {}", name, e.getMessage());
+                }
+            }
+        });
+    }
+
+    /**
+     * 注册一个 Elasticsearch 数据源。
+     */
+    public synchronized void registerElasticsearch(String name, ElasticsearchRestClient client,
+                                                    DataSourceProperties.DataSourceItem config) {
+        esClients.put(name, client);
+        configs.put(name, config);
+        closers.put(name, client::close);
+    }
+
+    /**
+     * 注册一个 Redis 数据源。
+     */
+    public synchronized void registerRedis(String name, RedisConnection connection,
+                                           DataSourceProperties.DataSourceItem config) {
+        redisClients.put(name, connection);
+        configs.put(name, config);
+        closers.put(name, connection::close);
     }
 
     /**
@@ -65,13 +112,16 @@ public class DataSourceRegistry {
      */
     public synchronized void unregister(String name) {
         adapters.remove(name);
+        esClients.remove(name);
+        redisClients.remove(name);
         configs.remove(name);
-        DataSource ds = dataSources.remove(name);
-        if (ds instanceof DruidDataSource) {
+        dataSources.remove(name);
+        Runnable closer = closers.remove(name);
+        if (closer != null) {
             try {
-                ((DruidDataSource) ds).close();
+                closer.run();
             } catch (Exception e) {
-                log.warn("关闭数据源 [{}] 连接池时出错: {}", name, e.getMessage());
+                log.warn("关闭数据源 [{}] 资源时出错: {}", name, e.getMessage());
             }
         }
     }
@@ -91,23 +141,59 @@ public class DataSourceRegistry {
     }
 
     /**
-     * 获取默认适配器（即第一个注册的数据源）。
+     * 获取默认适配器（即第一个注册的关系型数据源）。
      */
     public DatabaseAdapter getDefaultAdapter() {
         if (adapters.isEmpty()) {
-            throw new IllegalStateException("没有配置任何数据源");
+            throw new IllegalStateException("没有配置任何关系型数据源");
         }
         return adapters.values().iterator().next();
     }
 
     /**
-     * 获取默认数据源名称（即第一个注册的数据源名称）。
+     * 按名称获取 Elasticsearch 客户端；name 为空时返回第一个注册的 ES 数据源。
+     */
+    public ElasticsearchRestClient getElasticsearch(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            if (esClients.isEmpty()) {
+                throw new IllegalStateException("没有配置任何 Elasticsearch 数据源");
+            }
+            return esClients.values().iterator().next();
+        }
+        ElasticsearchRestClient client = esClients.get(name);
+        if (client == null) {
+            throw new IllegalArgumentException("未找到 Elasticsearch 数据源: " + name + "。可用: " + esClients.keySet());
+        }
+        return client;
+    }
+
+    /**
+     * 按名称获取 Redis 连接；name 为空时返回第一个注册的 Redis 数据源。
+     */
+    public RedisConnection getRedis(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            if (redisClients.isEmpty()) {
+                throw new IllegalStateException("没有配置任何 Redis 数据源");
+            }
+            return redisClients.values().iterator().next();
+        }
+        RedisConnection connection = redisClients.get(name);
+        if (connection == null) {
+            throw new IllegalArgumentException("未找到 Redis 数据源: " + name + "。可用: " + redisClients.keySet());
+        }
+        return connection;
+    }
+
+    /**
+     * 获取默认（关系型）数据源名称，即第一个注册的关系型数据源名称。
+     * <p>供关系型查询/写入工具在 datasource 为空时用于展示与只读判断，
+     * 避免在混合注册 ES/Redis 时误取到非关系型数据源。</p>
      */
     public String getDefaultName() {
-        if (configs.isEmpty()) {
+        if (adapters.isEmpty()) {
             return "";
         }
-        return configs.keySet().iterator().next();
+        return adapters.keySet().iterator().next();
     }
 
     /**
@@ -148,10 +234,10 @@ public class DataSourceRegistry {
     }
 
     /**
-     * 判断指定名称的数据源是否存在
+     * 判断指定名称的数据源是否存在（任意类型）
      */
     public boolean exists(String name) {
-        return adapters.containsKey(name);
+        return configs.containsKey(name);
     }
 
     /**
@@ -171,9 +257,9 @@ public class DataSourceRegistry {
     }
 
     /**
-     * 已注册数据源数量
+     * 已注册数据源数量（含关系型 / ES / Redis）
      */
     public synchronized int size() {
-        return adapters.size();
+        return configs.size();
     }
 }

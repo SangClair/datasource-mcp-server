@@ -96,3 +96,19 @@ fabric.properties
 # Android studio 3.1+ serialized cache file
 .idea/caches/build_file_checksums.ser
 
+### 项目敏感配置与运行时数据 ###
+# 实际运行配置：含数据库密码、Web 访问令牌等敏感信息。
+# 首次使用请复制 application.yml.example 为 application.yml 后自行填写。
+src/main/resources/application.yml
+# H2 动态数据源持久化目录（对应 mcp.dynamic-datasource-h2: ./datasource-mcp/datasources）
+/datasource-mcp/
+# 默认路径下的 H2 库（未自定义 mcp.dynamic-datasource-h2 时位于用户主目录）
+.dameng-mcp/
+# H2 数据库文件
+*.mv.db
+*.trace.db
+*.lock.db
+
+# macOS
+.DS_Store
+
