@@ -123,6 +123,95 @@ public class DataSourceManager {
     }
 
     /**
+     * 运行时修改动态数据源：仅允许修改动态添加的数据源，名称不可变（作为标识）。
+     * <p>
+     * 采用「先建连、后替换」策略：先用新配置建立并校验连接，成功后再注销旧实例并注册新实例，
+     * 从而在新配置不可用时保留原有运行中的数据源不受影响。
+     * 若提交的 password / apiKey 为空，则沿用原配置中的对应值（支持前端不回显密钥的编辑场景）。
+     * </p>
+     *
+     * @param item 新的数据源配置（name 必须与已存在的动态数据源一致）
+     */
+    public synchronized void update(DataSourceProperties.DataSourceItem item) {
+        validate(item);
+        DataSourceProperties.DataSourceItem existing = registry.getConfig(item.getName());
+        if (existing == null) {
+            throw new IllegalArgumentException("未找到数据源: " + item.getName());
+        }
+        if (!existing.isDynamic()) {
+            throw new IllegalArgumentException("数据源 [" + item.getName() + "] 为内置(application.yml)数据源，不允许通过 Web 修改");
+        }
+        // 密钥类字段留空时沿用原值（前端出于安全不回显）
+        if (!StringUtils.hasText(item.getPassword())) {
+            item.setPassword(existing.getPassword());
+        }
+        if (!StringUtils.hasText(item.getApiKey())) {
+            item.setApiKey(existing.getApiKey());
+        }
+        item.setDynamic(true);
+
+        String name = item.getName();
+        String type = item.getType().toLowerCase();
+        // 先用新配置建立资源（内部会校验连通性，失败抛异常，此时旧实例仍在），成功后再原子替换
+        switch (type) {
+            case "elasticsearch": {
+                ElasticsearchRestClient client = esFactory.create(item);
+                registry.unregister(name);
+                registry.registerElasticsearch(name, client, item);
+                break;
+            }
+            case "redis": {
+                RedisConnection connection = redisFactory.create(item);
+                registry.unregister(name);
+                registry.registerRedis(name, connection, item);
+                break;
+            }
+            default: {
+                DatabaseAdapterFactory.Registration reg = factory.create(item);
+                registry.unregister(name);
+                registry.register(name, reg.adapter(), reg.dataSource(), item);
+            }
+        }
+        persistence.saveAll(registry.listDynamicConfigs());
+        log.info("修改动态数据源成功: name={}, type={}", name, item.getType());
+    }
+
+    /**
+     * 获取用于编辑回显的数据源配置副本（脱敏：password/apiKey 置空，避免密钥回传浏览器）。
+     *
+     * @param name 数据源名称
+     * @return 脱敏后的配置副本
+     */
+    public DataSourceProperties.DataSourceItem getForEdit(String name) {
+        if (!StringUtils.hasText(name)) {
+            throw new IllegalArgumentException("数据源名称不能为空");
+        }
+        DataSourceProperties.DataSourceItem cfg = registry.getConfig(name);
+        if (cfg == null) {
+            throw new IllegalArgumentException("未找到数据源: " + name);
+        }
+        DataSourceProperties.DataSourceItem copy = new DataSourceProperties.DataSourceItem();
+        copy.setName(cfg.getName());
+        copy.setDescription(cfg.getDescription());
+        copy.setType(cfg.getType());
+        copy.setUrl(cfg.getUrl());
+        copy.setUsername(cfg.getUsername());
+        copy.setReadonly(cfg.isReadonly());
+        copy.setDynamic(cfg.isDynamic());
+        copy.setInitialSize(cfg.getInitialSize());
+        copy.setMinIdle(cfg.getMinIdle());
+        copy.setMaxActive(cfg.getMaxActive());
+        copy.setMaxWait(cfg.getMaxWait());
+        copy.setHost(cfg.getHost());
+        copy.setPort(cfg.getPort());
+        copy.setDatabase(cfg.getDatabase());
+        // 脱敏：不回传密钥
+        copy.setPassword("");
+        copy.setApiKey("");
+        return copy;
+    }
+
+    /**
      * 测试数据源连接（不注册、不持久化）。
      *
      * @param item 数据源配置

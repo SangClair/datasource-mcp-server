@@ -67,8 +67,8 @@
     <div class="card">
         <h2>MCP 接入信息</h2>
         <p style="font-size:14px;line-height:1.8;margin:0;">
-            SSE 接入地址：<code id="sseUrl">-</code><br>
-            将上述地址配置到支持 SSE 的 MCP 客户端（如 Cursor）即可调用数据库查询工具。<br>
+            MCP 接入地址：<code id="mcpUrl">-</code><br>
+            将上述地址配置到支持 Streamable HTTP 的 MCP 客户端（如 Cursor、Qoder）即可调用数据工具。<br>
             若服务端配置了访问令牌，MCP 客户端也需在连接中携带请求头 <code>X-Access-Token</code>。
         </p>
         <div class="token-box">
@@ -94,7 +94,7 @@
     </div>
 
     <div class="card">
-        <h2>新增数据源</h2>
+        <h2 id="formTitle">新增数据源</h2>
         <div class="form-grid">
             <div class="form-item">
                 <label>名称 (name) *</label>
@@ -150,7 +150,8 @@
         </div>
         <div class="btns">
             <button class="btn-ghost" onclick="testConnection()">测试连接</button>
-            <button class="btn-primary" onclick="addDataSource()">保存并注册</button>
+            <button class="btn-primary" id="saveBtn" onclick="saveDataSource()">保存并注册</button>
+            <button class="btn-ghost" id="cancelBtn" style="display:none;" onclick="cancelEdit()">取消编辑</button>
         </div>
         <div class="msg" id="formMsg"></div>
     </div>
@@ -159,6 +160,9 @@
 <script>
     const API = '/api/datasources';
     const TOKEN_KEY = 'dameng_mcp_access_token';
+
+    // 编辑状态：editName 非空表示当前处于编辑模式（修改已有动态数据源）
+    let editName = null;
 
     function token() {
         return document.getElementById('accessToken').value.trim();
@@ -193,9 +197,9 @@
         return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    function initSseUrl() {
+    function initMcpUrl() {
         const base = window.location.protocol + '//' + window.location.host;
-        document.getElementById('sseUrl').textContent = base + '/sse';
+        document.getElementById('mcpUrl').textContent = base + '/mcp';
     }
 
     async function loadList() {
@@ -220,7 +224,8 @@
                     ? '<span class="tag tag-dyn">动态</span>'
                     : '<span class="tag tag-builtin">内置</span>';
                 const del = d.dynamic
-                    ? `<button class="btn-del" onclick="removeDataSource('${encodeURIComponent(d.name)}')">删除</button>`
+                    ? `<button class="btn-ghost" style="padding:5px 12px;font-size:13px;margin-right:6px;" onclick="editDataSource('${encodeURIComponent(d.name)}')">编辑</button>`
+                        + `<button class="btn-del" onclick="removeDataSource('${encodeURIComponent(d.name)}')">删除</button>`
                     : '<span style="color:#cbd5e1;font-size:13px;">—</span>';
                 return `<tr>
                     <td>${esc(d.name)}</td>
@@ -307,24 +312,82 @@
         }
     }
 
-    async function addDataSource() {
+    async function saveDataSource() {
         const item = collectForm();
-        showMsg('正在保存...', true);
+        const editing = !!editName;
+        showMsg(editing ? '正在更新...' : '正在保存...', true);
         try {
-            const res = await fetch(API, {
-                method: 'POST', headers: headers(), body: JSON.stringify(item)
+            const url = editing ? API + '/' + encodeURIComponent(editName) : API;
+            const res = await fetch(url, {
+                method: editing ? 'PUT' : 'POST', headers: headers(), body: JSON.stringify(item)
             });
             const json = await res.json();
             showMsg(json.message, json.success);
             if (json.success) {
-                ['f-name', 'f-url', 'f-host', 'f-port', 'f-database', 'f-username', 'f-password', 'f-apikey', 'f-description']
-                    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-                document.getElementById('f-readonly').checked = false;
+                resetForm();
                 loadList();
             }
         } catch (e) {
-            showMsg('保存失败：' + e.message, false);
+            showMsg((editing ? '更新' : '保存') + '失败：' + e.message, false);
         }
+    }
+
+    // 加载指定数据源配置到表单并进入编辑模式（密码/apiKey 不回显）
+    async function editDataSource(name) {
+        const real = decodeURIComponent(name);
+        showMsg('正在加载配置...', true);
+        try {
+            const res = await fetch(API + '/' + encodeURIComponent(real), { headers: headers() });
+            const json = await res.json();
+            if (!json.success) {
+                showMsg(json.message, false);
+                return;
+            }
+            const d = json.data || {};
+            document.getElementById('f-type').value = d.type || 'dameng';
+            toggleFields();
+            document.getElementById('f-name').value = d.name || '';
+            document.getElementById('f-url').value = d.url || '';
+            document.getElementById('f-host').value = d.host != null ? d.host : '';
+            document.getElementById('f-port').value = d.port != null ? d.port : '';
+            document.getElementById('f-database').value = d.database != null ? d.database : '';
+            document.getElementById('f-username').value = d.username || '';
+            document.getElementById('f-password').value = '';
+            document.getElementById('f-apikey').value = '';
+            document.getElementById('f-description').value = d.description || '';
+            document.getElementById('f-readonly').checked = !!d.readonly;
+            // 进入编辑模式：名称不可改，密钥留空则保持不变
+            editName = real;
+            document.getElementById('f-name').disabled = true;
+            document.getElementById('f-password').placeholder = '留空表示保持原密码不变';
+            document.getElementById('f-apikey').placeholder = '留空表示保持原 API Key 不变';
+            document.getElementById('formTitle').textContent = '编辑数据源 [' + real + ']';
+            document.getElementById('saveBtn').textContent = '更新';
+            document.getElementById('cancelBtn').style.display = '';
+            showMsg('已加载 [' + real + ']，修改后点击「更新」。密钥类字段留空即保持不变。', true);
+            document.getElementById('formTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } catch (e) {
+            showMsg('加载配置失败：' + e.message, false);
+        }
+    }
+
+    function cancelEdit() {
+        resetForm();
+        showMsg('已取消编辑。', true);
+    }
+
+    // 重置表单并退出编辑模式
+    function resetForm() {
+        ['f-name', 'f-url', 'f-host', 'f-port', 'f-database', 'f-username', 'f-password', 'f-apikey', 'f-description']
+            .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        document.getElementById('f-readonly').checked = false;
+        document.getElementById('f-name').disabled = false;
+        document.getElementById('f-password').placeholder = '密码';
+        document.getElementById('f-apikey').placeholder = 'Elasticsearch API Key（与用户名/密码二选一）';
+        document.getElementById('formTitle').textContent = '新增数据源';
+        document.getElementById('saveBtn').textContent = '保存并注册';
+        document.getElementById('cancelBtn').style.display = 'none';
+        editName = null;
     }
 
     async function removeDataSource(name) {
@@ -340,7 +403,7 @@
     }
 
     initToken();
-    initSseUrl();
+    initMcpUrl();
     toggleFields();
     loadList();
 </script>

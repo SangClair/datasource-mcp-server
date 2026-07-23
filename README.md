@@ -2,31 +2,36 @@
 
 ## 项目介绍
 
-基于 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) 协议的多数据库查询服务。支持**达梦（DM）**、**Oracle**、**MySQL** 三种数据库，面向 Claude Desktop、Cursor、Cherry Studio 等 LLM 客户端，提供自然语言驱动的数据库查询、统计、分析和数据操作能力。
+基于 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) 协议的多数据源查询服务。支持关系型数据库 **达梦（DM）**、**Oracle**、**MySQL**，以及 **Elasticsearch** 与 **Redis**，面向 Claude Desktop、Cursor、Cherry Studio、Qoder 等 LLM 客户端，提供自然语言驱动的数据查询、统计、分析与数据操作能力。
 
-通过标准 MCP 协议，AI 助手可以直接连接和操作您的数据库，实现智能化的数据探索与管理。支持两种运行模式：**Stdio 模式**（本地 MCP 客户端）与 **HTTP/SSE 模式**（网络暴露 MCP 服务 + 内置 Web 数据源管理页面）。
+通过标准 MCP 协议，AI 助手可以直接连接和操作您的数据源，实现智能化的数据探索与管理。支持两种运行模式：**Stdio 模式**（本地 MCP 客户端）与 **HTTP 模式**（基于 Streamable HTTP 传输暴露 MCP 服务 + 内置 Web 数据源管理页面）。
 
 ## 功能特性
 
-- **双运行模式**：`stdio`（默认，本地进程通信）与 `http`（SSE 传输 + Web 管理页面），通过 Spring Profile 一键切换
-- **Web 动态数据源管理**：http 模式下提供内置 Web 页面 + REST API，可在运行时新增/删除/测试数据源，配置以 JSON 文件持久化，重启自动恢复
+- **双运行模式**：`stdio`（默认，本地进程通信）与 `http`（Streamable HTTP 传输 + Web 管理页面），通过 Spring Profile 一键切换
+- **Web 动态数据源管理**：http 模式下提供内置 Web 页面 + REST API，可在运行时新增/**编辑**/删除/测试数据源，配置持久化到嵌入式 **H2 数据库**，重启自动恢复
 - **多数据源支持**：支持同时配置多个数据源，每个数据源可设置独立的名称和用途描述，运行时按名称路由
-- **多数据库类型**：内置达梦、Oracle、MySQL 三种数据库适配器，统一接口无缝切换
-- **只读查询工具（7 个）**：数据源列表、Schema 列表、表列表、表结构、SQL 查询、样本数据、表统计、列统计
-- **写操作工具（3 个）**：INSERT、UPDATE、DELETE 操作，依赖 MCP 客户端确认机制保障安全
-- **严格安全控制**：白名单 + 黑名单 + 注释剥离 + 多语句注入检测 + 标识符校验，多层防护
-- **可扩展适配器架构**：`DatabaseAdapter` + `DatabaseDialect` 双接口设计，新增数据库类型只需实现两个接口
+- **多数据源类型**：内置达梦、Oracle、MySQL 关系型适配器，以及 Elasticsearch、Redis 适配器，统一注册/管理/持久化逻辑
+- **关系型数据库工具（11 个）**：数据源列表、Schema 列表、表列表、表结构、SQL 查询、样本数据、表统计、列统计，及 INSERT / UPDATE / DELETE
+- **Elasticsearch 工具（6 个）**：列索引、查 mapping、统计文档数、DSL 查询，及写入/删除文档
+- **Redis 工具（6 个）**：扫描 key、查看 key 元信息、读取值，及 SET / DEL / EXPIRE
+- **写操作安全**：依赖 MCP 客户端确认机制 + 只读数据源拦截；关系型 SQL 额外经白名单 + 黑名单 + 注释剥离 + 多语句注入检测 + 标识符校验多层防护
+- **访问令牌保护**：可选 `X-Access-Token`，保护 MCP 传输端点与数据源管理 API
+- **可扩展适配器架构**：`DatabaseAdapter` + `DatabaseDialect` 双接口设计，新增关系型数据库类型只需实现两个接口
 
 ## 技术栈
 
 | 组件 | 技术 | 版本 |
 | ---- | ---- | ---- |
-| 框架 | Spring Boot | 3.4.4 |
-| MCP 协议 | Spring AI MCP Server (Stdio + WebMVC/SSE) | 1.0.0-M7 |
+| 框架 | Spring Boot | 3.5.8 |
+| MCP 协议 | Spring AI MCP Server (Stdio + WebMVC / Streamable HTTP) | 1.1.0 |
 | 连接池 | Alibaba Druid | 1.2.23 |
 | 达梦驱动 | DmJdbcDriver18 | 8.1.3.140 |
 | Oracle 驱动 | ojdbc11 | 23.3.0.23.09 |
 | MySQL 驱动 | mysql-connector-j | Spring Boot 管理 |
+| Elasticsearch | elasticsearch-rest-client（兼容 7.x/8.x） | 8.13.4 |
+| Redis | Jedis | 5.1.5 |
+| 动态源持久化 | H2 Database（嵌入式 file 模式） | 2.2.224 |
 | 构建工具 | Maven | 3.x |
 | JDK | Java | 17+ |
 
@@ -50,7 +55,7 @@ cd dameng-mcp-server
 mvn clean package -DskipTests
 ```
 
-构建完成后，JAR 文件位于 `target/dameng-mcp-server-1.0.0-SNAPSHOT.jar`。
+构建完成后，JAR 文件位于 `target/dameng-mcp-server-2.0.0.jar`。
 
 ### 运行
 
@@ -62,31 +67,32 @@ mvn clean package -DskipTests
 
 ```bash
 # 直接运行（默认即 stdio 模式）
-java -jar target/dameng-mcp-server-1.0.0-SNAPSHOT.jar
+java -jar target/dameng-mcp-server-2.0.0.jar
 
 # 或通过 Maven 运行
 mvn spring-boot:run
 ```
 
-#### 模式二：HTTP / SSE 模式
+#### 模式二：HTTP 模式（Streamable HTTP）
 
-通过 SSE (Spring AI WebMVC) 暴露 MCP 服务，并提供内置 Web 管理页面用于运行时动态管理数据源。
+通过 Streamable HTTP 传输（Spring AI WebMVC）暴露 MCP 服务，并提供内置 Web 管理页面用于运行时动态管理数据源。
 
 ```bash
 # 启用 http 模式（默认端口 8080）
-java -jar target/dameng-mcp-server-1.0.0-SNAPSHOT.jar --spring.profiles.active=http
+java -jar target/dameng-mcp-server-2.0.0.jar --spring.profiles.active=http
 
 # 或使用环境变量
-SPRING_PROFILES_ACTIVE=http java -jar target/dameng-mcp-server-1.0.0-SNAPSHOT.jar
+SPRING_PROFILES_ACTIVE=http java -jar target/dameng-mcp-server-2.0.0.jar
 
 # 自定义端口
-java -jar target/dameng-mcp-server-1.0.0-SNAPSHOT.jar --spring.profiles.active=http --server.port=9090
+java -jar target/dameng-mcp-server-2.0.0.jar --spring.profiles.active=http --server.port=9090
 ```
 
 启动后：
 
-- **MCP SSE 接入地址**：`http://<host>:8080/sse`（消息端点 `/mcp/message`），配置到支持 SSE 的 MCP 客户端即可调用数据库工具。
-- **Web 数据源管理页面**：浏览器打开 `http://<host>:8080/`，可查看/新增/删除/测试数据源。
+- **MCP 接入地址**：`http://<host>:8080/mcp`（Streamable HTTP 单一端点，GET 建流 + POST 发消息）。配置到支持 Streamable HTTP 的 MCP 客户端即可调用数据工具。
+  > 客户端地址必须指向 `/mcp`，不能只填根地址（否则命中静态欢迎页返回 406）。
+- **Web 数据源管理页面**：浏览器打开 `http://<host>:8080/`，可查看/新增/编辑/删除/测试数据源。
 
 ## HTTP 模式与动态数据源管理
 
@@ -95,8 +101,9 @@ java -jar target/dameng-mcp-server-1.0.0-SNAPSHOT.jar --spring.profiles.active=h
 http 模式下访问 `http://<host>:8080/`，页面提供：
 
 - 已注册数据源列表（区分「内置」= application.yml 配置、「动态」= 运行时通过 Web 添加）
-- 新增数据源表单（类型下拉、URL、用户名、密码、只读开关、描述），支持「测试连接」与「保存并注册」
-- 仅「动态」数据源可通过页面删除；「内置」数据源不可删除
+- 新增/编辑数据源表单：类型下拉（dameng/oracle/mysql/elasticsearch/redis）、连接信息、只读开关、描述，支持「测试连接」与「保存并注册」
+- 仅「动态」数据源可通过页面**编辑**与**删除**；「内置」数据源不可修改/删除
+- 编辑时名称不可变；密码/apiKey 不回显，留空则保持原值不变
 
 ### REST API
 
@@ -105,9 +112,13 @@ http 模式下访问 `http://<host>:8080/`，页面提供：
 | 方法 | 路径 | 说明 |
 | ---- | ---- | ---- |
 | GET | `/api/datasources` | 列出所有数据源（不含密码） |
-| POST | `/api/datasources` | 新增数据源（请求体含 name/type/url/username/password/readonly/description） |
+| GET | `/api/datasources/{name}` | 获取单个数据源配置（用于编辑回显，password/apiKey 已脱敏置空） |
+| POST | `/api/datasources` | 新增数据源 |
+| PUT | `/api/datasources/{name}` | 修改动态数据源（名称不可变，以路径 name 为准；密码/apiKey 留空则沿用原值） |
 | DELETE | `/api/datasources/{name}` | 删除动态数据源 |
 | POST | `/api/datasources/test` | 测试连接（不保存） |
+
+请求体含字段：`name`/`type`/`url`/`username`/`password`/`readonly`/`description`（Redis 额外支持 `host`/`port`/`database`，Elasticsearch 额外支持 `apiKey`）。
 
 请求/响应示例：
 
@@ -115,12 +126,20 @@ http 模式下访问 `http://<host>:8080/`，页面提供：
 # 测试连接
 curl -X POST http://localhost:8080/api/datasources/test \
   -H 'Content-Type: application/json' \
+  -H 'X-Access-Token: 你的令牌' \
   -d '{"name":"pg-test","type":"mysql","url":"jdbc:mysql://host:3306/db","username":"root","password":"pwd"}'
 
 # 新增数据源
 curl -X POST http://localhost:8080/api/datasources \
   -H 'Content-Type: application/json' \
+  -H 'X-Access-Token: 你的令牌' \
   -d '{"name":"finance-oracle","type":"oracle","url":"jdbc:oracle:thin:@host:1521:ORCL","username":"u","password":"p","readonly":true,"description":"财务库"}'
+
+# 修改数据源（密码留空则保持不变）
+curl -X PUT http://localhost:8080/api/datasources/finance-oracle \
+  -H 'Content-Type: application/json' \
+  -H 'X-Access-Token: 你的令牌' \
+  -d '{"type":"oracle","url":"jdbc:oracle:thin:@newhost:1521:ORCL","username":"u","password":"","readonly":true,"description":"财务库(新地址)"}'
 ```
 
 统一响应结构：`{"success": true|false, "message": "...", "data": ...}`。
@@ -135,10 +154,10 @@ curl -X POST http://localhost:8080/api/datasources \
 
 配置 `mcp.web.access-token` 为非空值后，[AccessTokenFilter](src/main/java/com/dameng/mcp/web/AccessTokenFilter.java) 会对以下敏感端点强制校验请求头 `X-Access-Token`（默认关闭）：
 
-- `/sse`、`/mcp/**`：MCP 传输端点（直接关系到数据库查询/写入能力）；
+- `/mcp`、`/mcp/**`：MCP 传输端点（Streamable HTTP 模式下真正执行工具调用的入口）；
 - `/api/**`：数据源管理接口。
 
-静态管理页面（`/`）放行，页面顶部提供令牌输入框，令牌保存在浏览器本地。
+静态管理页面（`/`）放行，页面顶部提供令牌输入框，令牌保存在浏览器本地。令牌比较使用 `MessageDigest.isEqual` 常数时间比较，规避时序侧信道。
 
 ```yaml
 mcp:
@@ -146,20 +165,20 @@ mcp:
     access-token: "用足够长的随机串，如 openssl rand -hex 32 生成"
 ```
 
-MCP 客户端连接 `/sse` 时也需携带该令牌。以 Cursor 为例：
+MCP 客户端连接 `/mcp` 时也需携带该令牌。以 Cursor 为例：
 
 ```json
 {
   "mcpServers": {
     "dameng-mcp": {
-      "url": "https://your-host:8080/sse",
+      "url": "https://your-host:8080/mcp",
       "headers": { "X-Access-Token": "你的令牌" }
     }
   }
 }
 ```
 
-> 对无法自定义请求头的客户端，可退而用查询参数 `?access_token=你的令牌`，但令牌可能出现在访问日志中，安全性弱于请求头。
+> Streamable HTTP 为单端点协议，客户端每次请求都会携带该请求头，不存在旧 SSE 双端点模式下后续消息请求不带头导致握手超时的问题。令牌仅从请求头读取，不支持查询参数（避免出现在访问日志中）。
 
 ### 无内网隔离时的安全加固清单
 
@@ -168,7 +187,7 @@ MCP 客户端连接 `/sse` 时也需携带该令牌。以 Cursor 为例：
 1. **启用 HTTPS**：令牌走明文 HTTP 会被中间人窃听。开启 `server.ssl`（`application.yml` http 段已附证书生成示例），或用 Nginx/Caddy 反向代理终止 TLS。
 2. **设置强随机访问令牌**并定期轮换，切勿使用默认空值或弱口令。
 3. **最小权限**：数据库账户尽量使用只读账户，数据源配置 `readonly: true`，从源头限制“写工具”的破坏面。
-4. **收紧文件权限**：动态数据源 JSON 含明文密码，`chmod 600 ~/.dameng-mcp/datasources.json`，并限制运行账户。
+4. **收紧文件权限**：动态数据源的 H2 库文件含明文密码，`chmod 600 <数据源H2基础路径>.mv.db`，并限制运行账户。
 5. **绑定与限流**：可用 `server.address` 绑定指定网卡；在反向代理层做 IP 白名单、速率限制与 fail2ban，防止令牌被暴力枚举。
 6. **审计**：过滤器会以 `WARN` 记录被拒绝的未授权访问，便于监控异常来源。
 
@@ -199,6 +218,7 @@ mcp:
       url: jdbc:dm://192.168.1.100:5236
       username: SYSDBA
       password: your_password
+      readonly: true
 
     # Oracle 数据库示例
     - name: finance-oracle
@@ -216,6 +236,29 @@ mcp:
       username: root
       password: your_password
 
+    # Elasticsearch 示例（兼容 7.x/8.x，基于低级 REST 客户端）
+    #   - url：ES 基础地址，多节点用英文逗号分隔，如 http://a:9200,https://b:9200
+    #   - 认证二选一：username/password（basic）或 apiKey（ES API Key）
+    - name: es-log
+      description: "日志检索集群"
+      type: elasticsearch
+      url: http://127.0.0.1:9200
+      username: elastic
+      password: changeme
+      # apiKey: "base64EncodedApiKey"   # 与 username/password 二选一
+      readonly: true
+
+    # Redis 示例（单机，host/port/database；也可用 url: redis://host:port/db）
+    - name: redis-cache
+      description: "业务缓存"
+      type: redis
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      # username: default   # Redis 6+ ACL 可选
+      password: ""
+      readonly: true
+
 logging:
   level:
     root: OFF
@@ -227,16 +270,30 @@ logging:
 | ---- | ---- | ------ | ---- |
 | name | 是 | - | 数据源名称，全局唯一，MCP 调用时定位 |
 | description | 否 | - | 数据源用途描述，供 LLM 理解选择 |
-| type | 是 | - | 数据库类型：`dameng` / `oracle` / `mysql` |
-| url | 是 | - | JDBC 连接 URL |
-| username | 是 | - | 数据库用户名 |
-| password | 是 | - | 数据库密码 |
-| initialSize | 否 | 5 | Druid 初始化连接数 |
-| minIdle | 否 | 5 | Druid 最小空闲连接数 |
-| maxActive | 否 | 20 | Druid 最大活跃连接数 |
-| maxWait | 否 | 60000 | 获取连接最大等待时间（毫秒） |
+| type | 是 | - | 类型：`dameng` / `oracle` / `mysql` / `elasticsearch` / `redis` |
+| url | 条件 | - | 关系型为 JDBC URL；ES 为 HTTP 地址（多节点逗号分隔）；Redis 可用 `redis://host:port/db` 代替 host/port/database |
+| username | 条件 | - | 关系型/ES 用户名；Redis 6+ ACL 可选 |
+| password | 条件 | - | 连接密码 |
+| readonly | 否 | false | 只读数据源，为 true 时拒绝一切写操作（SQL 写入 / ES 写删 / Redis SET·DEL·EXPIRE） |
+| host | 条件 | - | **Redis 专用**：主机地址（未用 url 时） |
+| port | 否 | 6379 | **Redis 专用**：端口 |
+| database | 否 | 0 | **Redis 专用**：数据库索引 |
+| apiKey | 否 | - | **Elasticsearch 专用**：ES API Key（与 username/password 二选一） |
+| initialSize | 否 | 5 | Druid 初始化连接数（仅关系型） |
+| minIdle | 否 | 5 | Druid 最小空闲连接数（仅关系型） |
+| maxActive | 否 | 20 | Druid 最大活跃连接数（仅关系型） |
+| maxWait | 否 | 60000 | 获取连接最大等待时间（毫秒，仅关系型） |
 
-> **注意**：第一个配置的数据源将作为默认数据源，当 MCP 调用未指定 datasource 参数时自动使用。
+> **注意**：第一个配置的关系型数据源为默认关系型数据源；ES/Redis 工具在 datasource 为空时分别取第一个 ES/Redis 数据源。
+
+### http 模式专属配置（动态源持久化与令牌）
+
+| 属性 | 默认值 | 说明 |
+| ---- | ------ | ---- |
+| `mcp.dynamic-datasource-h2` | `${user.home}/.dameng-mcp/datasources` | 动态数据源 H2 库文件基础路径（不含扩展名，实际生成 `datasources.mv.db`） |
+| `mcp.dynamic-datasource-h2-username` | `sa` | H2 账号 |
+| `mcp.dynamic-datasource-h2-password` | （空） | H2 密码。注意：文件库首次创建时固化密码，已建库后需保持一致 |
+| `mcp.web.access-token` | （空） | 非空时开启访问令牌校验（见上文） |
 
 ## 环境变量
 
@@ -329,7 +386,7 @@ logging:
       "command": "java",
       "args": [
         "-jar",
-        "/path/to/dameng-mcp-server-1.0.0-SNAPSHOT.jar",
+        "/path/to/dameng-mcp-server-2.0.0.jar",
         "--spring.config.location=file:/path/to/your-config/application.yml"
       ]
     }
@@ -348,7 +405,7 @@ logging:
       "command": "java",
       "args": [
         "-jar",
-        "/path/to/dameng-mcp-server-1.0.0-SNAPSHOT.jar",
+        "/path/to/dameng-mcp-server-2.0.0.jar",
         "--spring.config.location=file:/path/to/your-config/application.yml"
       ]
     }
@@ -367,7 +424,7 @@ logging:
       "command": "java",
       "args": [
         "-jar",
-        "/path/to/dameng-mcp-server-1.0.0-SNAPSHOT.jar",
+        "/path/to/dameng-mcp-server-2.0.0.jar",
         "--spring.config.location=file:/path/to/your-config/application.yml"
       ]
     }
@@ -376,13 +433,15 @@ logging:
 ```
 
 > **提示**：
-> - 请将 `/path/to/dameng-mcp-server-1.0.0-SNAPSHOT.jar` 替换为实际的 JAR 文件绝对路径。
+> - 请将 `/path/to/dameng-mcp-server-2.0.0.jar` 替换为实际的 JAR 文件绝对路径。
 > - 请将 `/path/to/your-config/application.yml` 替换为外部配置文件的实际绝对路径。
 > - **单数据源快捷方式**：若仅使用单个达梦数据源，可省略 `--spring.config.location` 参数，并通过 `env` 字段传入 `DM_HOST` / `DM_PORT` / `DM_USERNAME` / `DM_PASSWORD` 环境变量即可。
 
 ## 可用工具列表
 
-### 元数据工具
+> 共 23 个 MCP 工具：关系型数据库 11 个 + Elasticsearch 6 个 + Redis 6 个。所有工具的 `datasource` 参数均可选，留空时使用对应类型的默认（首个）数据源。
+
+### 元数据工具（关系型）
 
 | 工具名 | 描述 | 参数 |
 | ------ | ---- | ---- |
@@ -405,7 +464,7 @@ logging:
 | `get_table_statistics` | 获取表的统计概览（行数、表大小等） | `datasource`（可选）：数据源名称<br>`schema`（必填）：模式名称<br>`table`（必填）：表名称 |
 | `get_column_statistics` | 获取列的统计信息（去重数、空值数、最值） | `datasource`（可选）：数据源名称<br>`schema`（必填）：模式名称<br>`table`（必填）：表名称<br>`column`（必填）：列名称 |
 
-### 写操作工具
+### 写操作工具（关系型）
 
 | 工具名 | 描述 | 参数 |
 | ------ | ---- | ---- |
@@ -413,7 +472,31 @@ logging:
 | `execute_update` | 执行 UPDATE 更新操作 ⚠️ | `datasource`（可选）：数据源名称<br>`sql`（必填）：UPDATE SQL 语句 |
 | `execute_delete` | 执行 DELETE 删除操作 ⚠️ | `datasource`（可选）：数据源名称<br>`sql`（必填）：DELETE SQL 语句 |
 
-> **⚠️ 写操作工具**会在 MCP 客户端弹出确认对话框，用户确认后才会执行。
+> **⚠️ 写操作工具**会在 MCP 客户端弹出确认对话框，用户确认后才会执行；只读数据源会直接拒绝。
+
+### Elasticsearch 工具
+
+| 工具名 | 描述 | 参数 |
+| ------ | ---- | ---- |
+| `esListIndices` | 列出所有索引（名称、健康状态、文档数、存储大小） | `datasource`（可选） |
+| `esGetMapping` | 获取索引 mapping（字段定义） | `datasource`（可选）<br>`index`（必填）：索引名 |
+| `esCount` | 统计索引文档数，可选 Query DSL 按条件统计 | `datasource`（可选）<br>`index`（必填）<br>`query`（可选）：Query DSL JSON |
+| `esSearch` | 在索引上执行 Query DSL 查询 | `datasource`（可选）<br>`index`（必填）<br>`dsl`（可选）：Query DSL JSON<br>`size`（可选）：返回条数，默认 10、上限 100 |
+| `esIndexDocument` | 写入或更新文档 ⚠️ | `datasource`（可选）<br>`index`（必填）<br>`id`（可选）：为空则自动生成<br>`document`（必填）：文档 JSON |
+| `esDeleteDocument` | 删除文档 ⚠️ | `datasource`（可选）<br>`index`（必填）<br>`id`（必填）：文档 ID |
+
+### Redis 工具
+
+| 工具名 | 描述 | 参数 |
+| ------ | ---- | ---- |
+| `redisScanKeys` | 基于 SCAN 扫描匹配模式的 key（避免 KEYS 阻塞） | `datasource`（可选）<br>`pattern`（可选）：如 user:*，为空匹配全部<br>`count`（可选）：默认 50、上限 500 |
+| `redisKeyInfo` | 查看 key 的类型与 TTL | `datasource`（可选）<br>`key`（必填） |
+| `redisGetKey` | 类型感知地读取 key 的值（string/list/set/hash/zset） | `datasource`（可选）<br>`key`（必填） |
+| `redisSet` | 设置字符串 key（SET） ⚠️ | `datasource`（可选）<br>`key`（必填）<br>`value`（必填） |
+| `redisDelete` | 删除 key（DEL） ⚠️ | `datasource`（可选）<br>`key`（必填） |
+| `redisExpire` | 为 key 设置过期时间（EXPIRE，秒） ⚠️ | `datasource`（可选）<br>`key`（必填）<br>`seconds`（必填）：正整数 |
+
+> **⚠️ ES/Redis 写操作**（写入/删除文档、SET/DEL/EXPIRE）同样受只读数据源拦截，只读源上执行将被拒绝。
 
 ## 安全机制
 
@@ -562,20 +645,26 @@ dameng-mcp-server/
 ├── src/main/
 │   ├── java/com/dameng/mcp/
 │   │   ├── DamengMcpServerApplication.java          # Spring Boot 启动类
-│   │   ├── adapter/                                 # 数据库适配层
-│   │   │   ├── DatabaseAdapter.java                 # 适配器接口
+│   │   ├── adapter/                                 # 数据源适配层
+│   │   │   ├── DatabaseAdapter.java                 # 关系型适配器接口
 │   │   │   ├── DatabaseDialect.java                 # 方言接口
-│   │   │   ├── DatabaseAdapterFactory.java          # 适配器工厂
-│   │   │   ├── DataSourceRegistry.java              # 多数据源注册表
+│   │   │   ├── DatabaseAdapterFactory.java          # 关系型适配器工厂
+│   │   │   ├── DataSourceRegistry.java              # 多数据源注册表（关系型/ES/Redis）
 │   │   │   ├── dameng/                              # 达梦适配器
 │   │   │   │   ├── DamengDatabaseAdapter.java
 │   │   │   │   └── DamengDialect.java
 │   │   │   ├── oracle/                              # Oracle 适配器
 │   │   │   │   ├── OracleDatabaseAdapter.java
 │   │   │   │   └── OracleDialect.java
-│   │   │   └── mysql/                               # MySQL 适配器
-│   │   │       ├── MysqlDatabaseAdapter.java
-│   │   │       └── MysqlDialect.java
+│   │   │   ├── mysql/                               # MySQL 适配器
+│   │   │   │   ├── MysqlDatabaseAdapter.java
+│   │   │   │   └── MysqlDialect.java
+│   │   │   ├── elasticsearch/                       # Elasticsearch 适配器
+│   │   │   │   ├── ElasticsearchClientFactory.java
+│   │   │   │   └── ElasticsearchRestClient.java
+│   │   │   └── redis/                               # Redis 适配器
+│   │   │       ├── RedisClientFactory.java
+│   │   │       └── RedisConnection.java
 │   │   ├── config/                                  # 配置类
 │   │   │   ├── DataSourceConfig.java                # 多数据源初始化（yml + 持久化动态源）
 │   │   │   ├── DataSourceProperties.java            # 数据源配置属性
@@ -593,16 +682,20 @@ dameng-mcp-server/
 │   │   ├── security/                                # 安全模块
 │   │   │   └── SqlSecurityValidator.java            # SQL 安全验证器
 │   │   ├── service/                                 # MCP 工具服务
-│   │   │   ├── DatabaseMetadataService.java         # 元数据工具
-│   │   │   ├── DatabaseQueryService.java            # 查询工具
-│   │   │   ├── DatabaseStatisticsService.java       # 统计工具
-│   │   │   ├── DatabaseWriteService.java            # 写操作工具
-│   │   │   └── DataSourceManager.java               # 数据源动态管理（增删/测试/持久化）
+│   │   │   ├── DatabaseMetadataService.java         # 元数据工具（关系型）
+│   │   │   ├── DatabaseQueryService.java            # 查询工具（关系型）
+│   │   │   ├── DatabaseStatisticsService.java       # 统计工具（关系型）
+│   │   │   ├── DatabaseWriteService.java            # 写操作工具（关系型）
+│   │   │   ├── ElasticsearchToolService.java        # Elasticsearch MCP 工具
+│   │   │   ├── RedisToolService.java                # Redis MCP 工具
+│   │   │   └── DataSourceManager.java               # 数据源动态管理（增删改/测试/持久化）
 │   │   └── web/                                     # HTTP 模式 Web 层（仅 http profile）
+│   │       ├── AccessTokenFilter.java               # 访问令牌过滤器
 │   │       ├── ApiResponse.java                     # 统一响应结构
 │   │       └── DataSourceController.java            # 数据源管理 REST 接口
 │   └── resources/
 │       ├── application.yml                          # 应用配置（stdio/http 双 profile）
+│       ├── application.yml.example                  # 脱敏示例配置模板
 │       └── static/
 │           └── index.html                           # 内置 Web 数据源管理页面
 └── target/                                          # 构建输出

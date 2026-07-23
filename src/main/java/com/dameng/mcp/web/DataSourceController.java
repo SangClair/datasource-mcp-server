@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -74,6 +75,49 @@ public class DataSourceController {
         } catch (Exception e) {
             log.error("新增数据源失败", e);
             return ApiResponse.fail("新增失败：" + safeMessage(e));
+        }
+    }
+
+    /**
+     * 获取单个数据源的完整配置（用于编辑回显，password/apiKey 已脱敏置空）。
+     */
+    @GetMapping("/{name}")
+    public ApiResponse<DataSourceProperties.DataSourceItem> get(@PathVariable("name") String name, HttpServletRequest request) {
+        String denied = checkToken(request);
+        if (denied != null) {
+            return ApiResponse.fail(denied);
+        }
+        try {
+            return ApiResponse.ok("查询成功", manager.getForEdit(name));
+        } catch (IllegalArgumentException iae) {
+            return ApiResponse.fail(safeMessage(iae));
+        } catch (Exception e) {
+            log.error("查询数据源详情失败：name={}", name, e);
+            return ApiResponse.fail("查询失败：" + safeMessage(e));
+        }
+    }
+
+    /**
+     * 修改动态数据源（名称不可变，以路径中的 name 为准）。
+     */
+    @PutMapping("/{name}")
+    public ApiResponse<Void> update(@PathVariable("name") String name,
+                                    @RequestBody DataSourceProperties.DataSourceItem item,
+                                    HttpServletRequest request) {
+        String denied = checkToken(request);
+        if (denied != null) {
+            return ApiResponse.fail(denied);
+        }
+        try {
+            // 以路径参数为准，防止体中 name 不一致导致误改
+            item.setName(name);
+            manager.update(item);
+            return ApiResponse.ok("数据源 [" + name + "] 修改成功");
+        } catch (IllegalArgumentException iae) {
+            return ApiResponse.fail(safeMessage(iae));
+        } catch (Exception e) {
+            log.error("修改数据源失败：name={}", name, e);
+            return ApiResponse.fail("修改失败：" + safeMessage(e));
         }
     }
 

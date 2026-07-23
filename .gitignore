@@ -21,6 +21,10 @@ buildNumber.properties
 # Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio, WebStorm and Rider
 # Reference: https://intellij-support.jetbrains.com/hc/en-us/articles/206544839
 
+# 忽略整个 IDE 配置目录：workspace.xml / dataSources 等文件可能包含运行配置、
+# 数据库连接及凭据等敏感信息，不应入库。
+.idea/
+
 # User-specific stuff
 .idea/**/workspace.xml
 .idea/**/tasks.xml
