@@ -49,8 +49,8 @@ mcp:
     readonly: true
 
   # ------------------------------------------------------------------------
-  # Elasticsearch / Redis 数据源示例（默认注释，按需取消注释并修改后启用）。
-  # 二者与关系型数据库共用同一套注册/持久化/Web 管理逻辑，readonly 控制写操作。
+  # Elasticsearch / Redis / Kafka 数据源示例（默认注释，按需取消注释并修改后启用）。
+  # 三者与关系型数据库共用同一套注册/持久化/Web 管理逻辑，readonly 控制写操作。
   # ------------------------------------------------------------------------
   # Elasticsearch（兼容 7.x / 8.x，基于低级 REST 客户端）：
   #   - url：ES 基础地址，多节点用英文逗号分隔，如 http://a:9200,https://b:9200
@@ -73,6 +73,20 @@ mcp:
   #   database: 0
   #   # username: default   # Redis 6+ ACL 可选
   #   password: ""
+  #   readonly: true
+  #
+  # Kafka（只读运维诊断：列 topic / 看 topic 详情 / 消费者组 lag / 无副作用抓取最近消息）：
+  #   - url：bootstrap.servers，多节点用英文逗号分隔，如 host1:9092,host2:9092
+  #   - 无认证时只填 url；SASL 场景填 securityProtocol + saslMechanism + username/password
+  #   - 抓取消息严格无副作用（assign+seek、禁用提交、随机 group.id），不污染任何消费者组 offset
+  # - name: kafka-ops
+  #   description: "业务消息集群（只读诊断）"
+  #   type: kafka
+  #   url: 127.0.0.1:9092
+  #   # securityProtocol: SASL_PLAINTEXT   # 可选：PLAINTEXT / SASL_PLAINTEXT / SASL_SSL / SSL
+  #   # saslMechanism: PLAIN               # 可选：PLAIN / SCRAM-SHA-256 / SCRAM-SHA-512
+  #   # username: kafkauser                # 仅 SASL 时需要
+  #   # password: kafkapass                # 仅 SASL 时需要
   #   readonly: true
 
 # ============================================================================

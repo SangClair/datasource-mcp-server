@@ -74,7 +74,7 @@ public class DataSourceProperties {
         private String description;
 
         /**
-         * 数据库类型：dameng / oracle / mysql / elasticsearch / redis
+         * 数据库类型：dameng / oracle / mysql / elasticsearch / redis / kafka
          */
         private String type;
 
@@ -152,5 +152,17 @@ public class DataSourceProperties {
          * Elasticsearch API Key（可选，与 username/password 二选一）。
          */
         private String apiKey;
+
+        // ---------- Kafka 专用可选字段 ----------
+
+        /**
+         * Kafka 安全协议：PLAINTEXT / SASL_PLAINTEXT / SASL_SSL / SSL（默认 PLAINTEXT，为空时不设置）。
+         */
+        private String securityProtocol;
+
+        /**
+         * Kafka SASL 机制：PLAIN / SCRAM-SHA-256 / SCRAM-SHA-512（配合 username/password 使用）。
+         */
+        private String saslMechanism;
     }
 }

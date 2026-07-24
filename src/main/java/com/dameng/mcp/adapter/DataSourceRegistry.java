@@ -2,6 +2,7 @@ package com.dameng.mcp.adapter;
 
 import com.alibaba.druid.pool.DruidDataSource;
 import com.dameng.mcp.adapter.elasticsearch.ElasticsearchRestClient;
+import com.dameng.mcp.adapter.kafka.KafkaConnection;
 import com.dameng.mcp.adapter.redis.RedisConnection;
 import com.dameng.mcp.config.DataSourceProperties;
 import com.dameng.mcp.model.DataSourceInfo;
@@ -56,6 +57,11 @@ public class DataSourceRegistry {
     private final Map<String, RedisConnection> redisClients = new LinkedHashMap<>();
 
     /**
+     * 数据源名称 -> Kafka 连接封装
+     */
+    private final Map<String, KafkaConnection> kafkaClients = new LinkedHashMap<>();
+
+    /**
      * 数据源名称 -> 资源关闭动作（注销时统一执行，屏蔽不同类型资源的关闭差异）
      */
     private final Map<String, Runnable> closers = new LinkedHashMap<>();
@@ -106,6 +112,16 @@ public class DataSourceRegistry {
     }
 
     /**
+     * 注册一个 Kafka 数据源。
+     */
+    public synchronized void registerKafka(String name, KafkaConnection connection,
+                                           DataSourceProperties.DataSourceItem config) {
+        kafkaClients.put(name, connection);
+        configs.put(name, config);
+        closers.put(name, connection::close);
+    }
+
+    /**
      * 注销并移除一个数据源，同时关闭其底层连接池。
      *
      * @param name 数据源名称
@@ -114,6 +130,7 @@ public class DataSourceRegistry {
         adapters.remove(name);
         esClients.remove(name);
         redisClients.remove(name);
+        kafkaClients.remove(name);
         configs.remove(name);
         dataSources.remove(name);
         Runnable closer = closers.remove(name);
@@ -180,6 +197,23 @@ public class DataSourceRegistry {
         RedisConnection connection = redisClients.get(name);
         if (connection == null) {
             throw new IllegalArgumentException("未找到 Redis 数据源: " + name + "。可用: " + redisClients.keySet());
+        }
+        return connection;
+    }
+
+    /**
+     * 按名称获取 Kafka 连接；name 为空时返回第一个注册的 Kafka 数据源。
+     */
+    public KafkaConnection getKafka(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            if (kafkaClients.isEmpty()) {
+                throw new IllegalStateException("没有配置任何 Kafka 数据源");
+            }
+            return kafkaClients.values().iterator().next();
+        }
+        KafkaConnection connection = kafkaClients.get(name);
+        if (connection == null) {
+            throw new IllegalArgumentException("未找到 Kafka 数据源: " + name + "。可用: " + kafkaClients.keySet());
         }
         return connection;
     }

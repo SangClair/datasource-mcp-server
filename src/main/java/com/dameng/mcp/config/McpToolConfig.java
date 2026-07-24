@@ -5,6 +5,7 @@ import com.dameng.mcp.service.DatabaseQueryService;
 import com.dameng.mcp.service.DatabaseStatisticsService;
 import com.dameng.mcp.service.DatabaseWriteService;
 import com.dameng.mcp.service.ElasticsearchToolService;
+import com.dameng.mcp.service.KafkaToolService;
 import com.dameng.mcp.service.RedisToolService;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
@@ -24,10 +25,11 @@ public class McpToolConfig {
             DatabaseStatisticsService statisticsService,
             DatabaseWriteService writeService,
             ElasticsearchToolService elasticsearchService,
-            RedisToolService redisService) {
+            RedisToolService redisService,
+            KafkaToolService kafkaService) {
         return MethodToolCallbackProvider.builder()
                 .toolObjects(metadataService, queryService, statisticsService, writeService,
-                        elasticsearchService, redisService)
+                        elasticsearchService, redisService, kafkaService)
                 .build();
     }
 }

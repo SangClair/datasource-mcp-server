@@ -5,6 +5,8 @@ import com.dameng.mcp.adapter.DatabaseAdapterFactory;
 import com.dameng.mcp.adapter.DataSourceRegistry;
 import com.dameng.mcp.adapter.elasticsearch.ElasticsearchClientFactory;
 import com.dameng.mcp.adapter.elasticsearch.ElasticsearchRestClient;
+import com.dameng.mcp.adapter.kafka.KafkaClientFactory;
+import com.dameng.mcp.adapter.kafka.KafkaConnection;
 import com.dameng.mcp.adapter.redis.RedisClientFactory;
 import com.dameng.mcp.adapter.redis.RedisConnection;
 import com.dameng.mcp.config.DataSourcePersistence;
@@ -29,22 +31,25 @@ import java.util.Set;
 @Service
 public class DataSourceManager {
 
-    private static final Set<String> SUPPORTED_TYPES = Set.of("dameng", "oracle", "mysql", "elasticsearch", "redis");
+    private static final Set<String> SUPPORTED_TYPES = Set.of("dameng", "oracle", "mysql", "elasticsearch", "redis", "kafka");
 
     private final DatabaseAdapterFactory factory;
     private final ElasticsearchClientFactory esFactory;
     private final RedisClientFactory redisFactory;
+    private final KafkaClientFactory kafkaFactory;
     private final DataSourceRegistry registry;
     private final DataSourcePersistence persistence;
 
     public DataSourceManager(DatabaseAdapterFactory factory,
                              ElasticsearchClientFactory esFactory,
                              RedisClientFactory redisFactory,
+                             KafkaClientFactory kafkaFactory,
                              DataSourceRegistry registry,
                              DataSourcePersistence persistence) {
         this.factory = factory;
         this.esFactory = esFactory;
         this.redisFactory = redisFactory;
+        this.kafkaFactory = kafkaFactory;
         this.registry = registry;
         this.persistence = persistence;
     }
@@ -64,6 +69,11 @@ public class DataSourceManager {
             case "redis": {
                 RedisConnection connection = redisFactory.create(item);
                 registry.registerRedis(item.getName(), connection, item);
+                break;
+            }
+            case "kafka": {
+                KafkaConnection connection = kafkaFactory.create(item);
+                registry.registerKafka(item.getName(), connection, item);
                 break;
             }
             default: {
@@ -166,6 +176,12 @@ public class DataSourceManager {
                 registry.registerRedis(name, connection, item);
                 break;
             }
+            case "kafka": {
+                KafkaConnection connection = kafkaFactory.create(item);
+                registry.unregister(name);
+                registry.registerKafka(name, connection, item);
+                break;
+            }
             default: {
                 DatabaseAdapterFactory.Registration reg = factory.create(item);
                 registry.unregister(name);
@@ -205,6 +221,8 @@ public class DataSourceManager {
         copy.setHost(cfg.getHost());
         copy.setPort(cfg.getPort());
         copy.setDatabase(cfg.getDatabase());
+        copy.setSecurityProtocol(cfg.getSecurityProtocol());
+        copy.setSaslMechanism(cfg.getSaslMechanism());
         // 脱敏：不回传密钥
         copy.setPassword("");
         copy.setApiKey("");
@@ -225,6 +243,10 @@ public class DataSourceManager {
         }
         if ("redis".equals(type)) {
             redisFactory.testConnection(item);
+            return;
+        }
+        if ("kafka".equals(type)) {
+            kafkaFactory.testConnection(item);
             return;
         }
         DataSource ds = null;
@@ -258,7 +280,7 @@ public class DataSourceManager {
         String type = item.getType().toLowerCase();
         if (!SUPPORTED_TYPES.contains(type)) {
             throw new IllegalArgumentException("不支持的数据源类型: " + item.getType()
-                    + "。支持: dameng, oracle, mysql, elasticsearch, redis");
+                    + "。支持: dameng, oracle, mysql, elasticsearch, redis, kafka");
         }
         if ("elasticsearch".equals(type)) {
             if (!StringUtils.hasText(item.getUrl())) {
@@ -269,6 +291,12 @@ public class DataSourceManager {
         if ("redis".equals(type)) {
             if (!StringUtils.hasText(item.getHost()) && !StringUtils.hasText(item.getUrl())) {
                 throw new IllegalArgumentException("Redis 主机(host)不能为空（或使用 url: redis://host:port）");
+            }
+            return;
+        }
+        if ("kafka".equals(type)) {
+            if (!StringUtils.hasText(item.getUrl())) {
+                throw new IllegalArgumentException("Kafka bootstrap.servers(url) 不能为空，如 host1:9092,host2:9092");
             }
             return;
         }

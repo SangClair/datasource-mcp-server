@@ -1,4 +1,4 @@
-# Dameng MCP Server
+# Datasource MCP Server
 
 ## 项目介绍
 
