@@ -2,7 +2,7 @@
 
 ## 项目介绍
 
-基于 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) 协议的多数据源查询服务。支持关系型数据库 **达梦（DM）**、**Oracle**、**MySQL**，以及 **Elasticsearch** 与 **Redis**，面向 Claude Desktop、Cursor、Cherry Studio、Qoder 等 LLM 客户端，提供自然语言驱动的数据查询、统计、分析与数据操作能力。
+基于 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) 协议的多数据源查询服务。支持关系型数据库 **达梦（DM）**、**Oracle**、**MySQL**，以及 **Elasticsearch**、**Redis** 与 **Kafka**（只读运维诊断），面向 Claude Desktop、Cursor、Cherry Studio、Qoder 等 LLM 客户端，提供自然语言驱动的数据查询、统计、分析与数据操作能力。
 
 通过标准 MCP 协议，AI 助手可以直接连接和操作您的数据源，实现智能化的数据探索与管理。支持两种运行模式：**Stdio 模式**（本地 MCP 客户端）与 **HTTP 模式**（基于 Streamable HTTP 传输暴露 MCP 服务 + 内置 Web 数据源管理页面）。
 
@@ -11,10 +11,11 @@
 - **双运行模式**：`stdio`（默认，本地进程通信）与 `http`（Streamable HTTP 传输 + Web 管理页面），通过 Spring Profile 一键切换
 - **Web 动态数据源管理**：http 模式下提供内置 Web 页面 + REST API，可在运行时新增/**编辑**/删除/测试数据源，配置持久化到嵌入式 **H2 数据库**，重启自动恢复
 - **多数据源支持**：支持同时配置多个数据源，每个数据源可设置独立的名称和用途描述，运行时按名称路由
-- **多数据源类型**：内置达梦、Oracle、MySQL 关系型适配器，以及 Elasticsearch、Redis 适配器，统一注册/管理/持久化逻辑
+- **多数据源类型**：内置达梦、Oracle、MySQL 关系型适配器，以及 Elasticsearch、Redis、Kafka 适配器，统一注册/管理/持久化逻辑
 - **关系型数据库工具（11 个）**：数据源列表、Schema 列表、表列表、表结构、SQL 查询、样本数据、表统计、列统计，及 INSERT / UPDATE / DELETE
 - **Elasticsearch 工具（6 个）**：列索引、查 mapping、统计文档数、DSL 查询，及写入/删除文档
 - **Redis 工具（6 个）**：扫描 key、查看 key 元信息、读取值，及 SET / DEL / EXPIRE
+- **Kafka 工具（4 个，只读）**：列 topic、查 topic 详情、列消费者组及 lag、无副作用抓取最近消息
 - **写操作安全**：依赖 MCP 客户端确认机制 + 只读数据源拦截；关系型 SQL 额外经白名单 + 黑名单 + 注释剥离 + 多语句注入检测 + 标识符校验多层防护
 - **访问令牌保护**：可选 `X-Access-Token`，保护 MCP 传输端点与数据源管理 API
 - **可扩展适配器架构**：`DatabaseAdapter` + `DatabaseDialect` 双接口设计，新增关系型数据库类型只需实现两个接口
@@ -31,6 +32,7 @@
 | MySQL 驱动 | mysql-connector-j | Spring Boot 管理 |
 | Elasticsearch | elasticsearch-rest-client（兼容 7.x/8.x） | 8.13.4 |
 | Redis | Jedis | 5.1.5 |
+| Kafka | kafka-clients（AdminClient + Consumer，无 Spring Kafka） | Spring Boot 管理 |
 | 动态源持久化 | H2 Database（嵌入式 file 模式） | 2.2.224 |
 | 构建工具 | Maven | 3.x |
 | JDK | Java | 17+ |
@@ -101,7 +103,7 @@ java -jar target/dameng-mcp-server-2.0.0.jar --spring.profiles.active=http --ser
 http 模式下访问 `http://<host>:8080/`，页面提供：
 
 - 已注册数据源列表（区分「内置」= application.yml 配置、「动态」= 运行时通过 Web 添加）
-- 新增/编辑数据源表单：类型下拉（dameng/oracle/mysql/elasticsearch/redis）、连接信息、只读开关、描述，支持「测试连接」与「保存并注册」
+- 新增/编辑数据源表单：类型下拉（dameng/oracle/mysql/elasticsearch/redis/kafka）、连接信息、只读开关、描述，支持「测试连接」与「保存并注册」
 - 仅「动态」数据源可通过页面**编辑**与**删除**；「内置」数据源不可修改/删除
 - 编辑时名称不可变；密码/apiKey 不回显，留空则保持原值不变
 
@@ -118,7 +120,7 @@ http 模式下访问 `http://<host>:8080/`，页面提供：
 | DELETE | `/api/datasources/{name}` | 删除动态数据源 |
 | POST | `/api/datasources/test` | 测试连接（不保存） |
 
-请求体含字段：`name`/`type`/`url`/`username`/`password`/`readonly`/`description`（Redis 额外支持 `host`/`port`/`database`，Elasticsearch 额外支持 `apiKey`）。
+请求体含字段：`name`/`type`/`url`/`username`/`password`/`readonly`/`description`（Redis 额外支持 `host`/`port`/`database`，Elasticsearch 额外支持 `apiKey`，Kafka 额外支持 `securityProtocol`/`saslMechanism`）。
 
 请求/响应示例：
 
@@ -259,6 +261,19 @@ mcp:
       password: ""
       readonly: true
 
+    # Kafka 示例（只读运维诊断，url 为 bootstrap.servers，多个 broker 逗号分隔）
+    #   - 读取消息无副作用：采用 assign+seek+随机 group.id+禁用自动提交，不污染任何消费组 offset
+    #   - 认证可选：securityProtocol + saslMechanism 配合 username/password
+    - name: kafka-ops
+      description: "消息队列运维诊断"
+      type: kafka
+      url: 127.0.0.1:9092
+      # securityProtocol: SASL_PLAINTEXT   # PLAINTEXT / SASL_PLAINTEXT / SASL_SSL / SSL
+      # saslMechanism: PLAIN               # PLAIN / SCRAM-SHA-256 / SCRAM-SHA-512
+      # username: kafka_user
+      # password: your_password
+      readonly: true
+
 logging:
   level:
     root: OFF
@@ -270,21 +285,23 @@ logging:
 | ---- | ---- | ------ | ---- |
 | name | 是 | - | 数据源名称，全局唯一，MCP 调用时定位 |
 | description | 否 | - | 数据源用途描述，供 LLM 理解选择 |
-| type | 是 | - | 类型：`dameng` / `oracle` / `mysql` / `elasticsearch` / `redis` |
-| url | 条件 | - | 关系型为 JDBC URL；ES 为 HTTP 地址（多节点逗号分隔）；Redis 可用 `redis://host:port/db` 代替 host/port/database |
-| username | 条件 | - | 关系型/ES 用户名；Redis 6+ ACL 可选 |
+| type | 是 | - | 类型：`dameng` / `oracle` / `mysql` / `elasticsearch` / `redis` / `kafka` |
+| url | 条件 | - | 关系型为 JDBC URL；ES 为 HTTP 地址（多节点逗号分隔）；Redis 可用 `redis://host:port/db` 代替 host/port/database；Kafka 为 bootstrap.servers（多个 broker 逗号分隔） |
+| username | 条件 | - | 关系型/ES 用户名；Redis 6+ ACL 可选；Kafka SASL 认证时使用 |
 | password | 条件 | - | 连接密码 |
-| readonly | 否 | false | 只读数据源，为 true 时拒绝一切写操作（SQL 写入 / ES 写删 / Redis SET·DEL·EXPIRE） |
+| readonly | 否 | false | 只读数据源，为 true 时拒绝一切写操作（SQL 写入 / ES 写删 / Redis SET·DEL·EXPIRE；Kafka 恒为只读） |
 | host | 条件 | - | **Redis 专用**：主机地址（未用 url 时） |
 | port | 否 | 6379 | **Redis 专用**：端口 |
 | database | 否 | 0 | **Redis 专用**：数据库索引 |
 | apiKey | 否 | - | **Elasticsearch 专用**：ES API Key（与 username/password 二选一） |
+| securityProtocol | 否 | PLAINTEXT | **Kafka 专用**：安全协议 `PLAINTEXT`/`SASL_PLAINTEXT`/`SASL_SSL`/`SSL`（为空时不设置） |
+| saslMechanism | 否 | - | **Kafka 专用**：SASL 机制 `PLAIN`/`SCRAM-SHA-256`/`SCRAM-SHA-512`（配合 username/password） |
 | initialSize | 否 | 5 | Druid 初始化连接数（仅关系型） |
 | minIdle | 否 | 5 | Druid 最小空闲连接数（仅关系型） |
 | maxActive | 否 | 20 | Druid 最大活跃连接数（仅关系型） |
 | maxWait | 否 | 60000 | 获取连接最大等待时间（毫秒，仅关系型） |
 
-> **注意**：第一个配置的关系型数据源为默认关系型数据源；ES/Redis 工具在 datasource 为空时分别取第一个 ES/Redis 数据源。
+> **注意**：第一个配置的关系型数据源为默认关系型数据源；ES/Redis/Kafka 工具在 datasource 为空时分别取第一个 ES/Redis/Kafka 数据源。
 
 ### http 模式专属配置（动态源持久化与令牌）
 
@@ -439,7 +456,7 @@ logging:
 
 ## 可用工具列表
 
-> 共 23 个 MCP 工具：关系型数据库 11 个 + Elasticsearch 6 个 + Redis 6 个。所有工具的 `datasource` 参数均可选，留空时使用对应类型的默认（首个）数据源。
+> 共 27 个 MCP 工具：关系型数据库 11 个 + Elasticsearch 6 个 + Redis 6 个 + Kafka 4 个。所有工具的 `datasource` 参数均可选，留空时使用对应类型的默认（首个）数据源。
 
 ### 元数据工具（关系型）
 
@@ -497,6 +514,17 @@ logging:
 | `redisExpire` | 为 key 设置过期时间（EXPIRE，秒） ⚠️ | `datasource`（可选）<br>`key`（必填）<br>`seconds`（必填）：正整数 |
 
 > **⚠️ ES/Redis 写操作**（写入/删除文档、SET/DEL/EXPIRE）同样受只读数据源拦截，只读源上执行将被拒绝。
+
+### Kafka 工具（只读）
+
+| 工具名 | 描述 | 参数 |
+| ------ | ---- | ---- |
+| `kafkaListTopics` | 列出集群中所有 topic 名称 | `datasource`（可选）<br>`includeInternal`（可选）：是否包含内部 topic，默认 false |
+| `kafkaDescribeTopic` | 查看 topic 详情：分区数、各分区 leader/副本/ISR、关键配置 | `datasource`（可选）<br>`topic`（必填）：topic 名称 |
+| `kafkaListConsumerGroups` | 列出消费者组：groupId、状态、成员数、总积压 lag | `datasource`（可选） |
+| `kafkaPeekMessages` | 抓取 topic 最近若干条消息用于诊断（无副作用，不提交 offset） | `datasource`（可选）<br>`topic`（必填）<br>`partition`（可选）：<0 表示全部分区<br>`maxMessages`（可选）：默认 20、上限 500<br>`pollTimeoutMs`（可选）：默认 2000、上限 5000 |
+
+> **Kafka 无副作用保证**：`kafkaPeekMessages` 采用 `assign()` + `seek()` 定位尾部、随机 `group.id`（`dameng-mcp-peek-<UUID>`）、`enable.auto.commit=false`、全程不 commit，读完即关闭 Consumer，**不会污染任何现有消费组的 offset**。Kafka 数据源不提供任何写入/生产类工具。
 
 ## 安全机制
 
@@ -649,7 +677,7 @@ dameng-mcp-server/
 │   │   │   ├── DatabaseAdapter.java                 # 关系型适配器接口
 │   │   │   ├── DatabaseDialect.java                 # 方言接口
 │   │   │   ├── DatabaseAdapterFactory.java          # 关系型适配器工厂
-│   │   │   ├── DataSourceRegistry.java              # 多数据源注册表（关系型/ES/Redis）
+│   │   │   ├── DataSourceRegistry.java              # 多数据源注册表（关系型/ES/Redis/Kafka）
 │   │   │   ├── dameng/                              # 达梦适配器
 │   │   │   │   ├── DamengDatabaseAdapter.java
 │   │   │   │   └── DamengDialect.java
@@ -662,9 +690,12 @@ dameng-mcp-server/
 │   │   │   ├── elasticsearch/                       # Elasticsearch 适配器
 │   │   │   │   ├── ElasticsearchClientFactory.java
 │   │   │   │   └── ElasticsearchRestClient.java
-│   │   │   └── redis/                               # Redis 适配器
-│   │   │       ├── RedisClientFactory.java
-│   │   │       └── RedisConnection.java
+│   │   │   ├── redis/                               # Redis 适配器
+│   │   │   │   ├── RedisClientFactory.java
+│   │   │   │   └── RedisConnection.java
+│   │   │   └── kafka/                               # Kafka 适配器（只读）
+│   │   │       ├── KafkaClientFactory.java
+│   │   │       └── KafkaConnection.java
 │   │   ├── config/                                  # 配置类
 │   │   │   ├── DataSourceConfig.java                # 多数据源初始化（yml + 持久化动态源）
 │   │   │   ├── DataSourceProperties.java            # 数据源配置属性
@@ -688,6 +719,7 @@ dameng-mcp-server/
 │   │   │   ├── DatabaseWriteService.java            # 写操作工具（关系型）
 │   │   │   ├── ElasticsearchToolService.java        # Elasticsearch MCP 工具
 │   │   │   ├── RedisToolService.java                # Redis MCP 工具
+│   │   │   ├── KafkaToolService.java                # Kafka MCP 工具（只读）
 │   │   │   └── DataSourceManager.java               # 数据源动态管理（增删改/测试/持久化）
 │   │   └── web/                                     # HTTP 模式 Web 层（仅 http profile）
 │   │       ├── AccessTokenFilter.java               # 访问令牌过滤器
