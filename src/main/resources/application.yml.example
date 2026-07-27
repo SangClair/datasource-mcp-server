@@ -1,0 +1,165 @@
+# ============================================================================
+# 达梦 MCP Server 配置【示例模板】
+# ----------------------------------------------------------------------------
+# 本文件为示例模板，已提交到版本库。真实的 application.yml 含数据库密码/访问令牌，
+# 已被 .gitignore 忽略。首次使用请执行：
+#   cp src/main/resources/application.yml.example src/main/resources/application.yml
+# 然后按注释填写你自己的数据源与令牌。
+# ----------------------------------------------------------------------------
+# 支持两种运行模式，通过 Spring Profile 切换（互不干扰）：
+#   1. stdio 模式（默认）：面向 Claude Desktop / Cursor 等本地 MCP 客户端，
+#      通过标准输入输出通信，不监听网络端口。
+#   2. http  模式：通过 Streamable HTTP (Spring AI WebMVC) 暴露 MCP 服务，并提供内置 Web
+#      管理页面 + REST API，可在运行时动态添加/删除/测试数据源。
+#
+# 切换方式：
+#   - 默认 stdio：java -jar dameng-mcp-server.jar
+#   - http  模式：java -jar dameng-mcp-server.jar --spring.profiles.active=http
+#                 或设置环境变量 SPRING_PROFILES_ACTIVE=http
+#
+# 生产环境建议使用外部配置文件覆盖数据源配置：
+#   java -jar dameng-mcp-server.jar --spring.config.location=file:/path/to/application.yml
+# ============================================================================
+
+spring:
+  main:
+    banner-mode: off
+  # 默认激活 stdio 模式；如需 Web 管理页面请改为 http
+  profiles:
+    active: http
+  ai:
+    mcp:
+      server:
+        name: dameng-mcp-server
+        version: 2.0.0
+
+# 动态数据源持久化（http 模式下 Web 新增的数据源写入嵌入式 H2 库，重启自动恢复）
+mcp:
+  # H2 数据库文件基础路径（不含扩展名）。示例使用项目内相对目录（已被 .gitignore 忽略）。
+  dynamic-datasource-h2: ./datasource-mcp/datasources
+  # H2 账号密码（默认 sa/空）。注意：文件库首次创建时固化密码，已建库后需保持一致。
+  dynamic-datasource-h2-username: sa
+  dynamic-datasource-h2-password: ""
+  # Web 管理接口访问令牌（可选）。非空时，REST API 需携带请求头 X-Access-Token。
+  # 【请替换为你自己的强随机令牌，留空表示不校验】
+  web:
+    access-token: "CHANGE_ME_ACCESS_TOKEN"
+  # 内置默认数据源（可被外部配置覆盖）。以下为各类型的占位示例，请替换为真实连接信息。
+  datasources:
+  # 关系型数据库（dameng / oracle / mysql）
+  - name: example-dameng
+    description: "达梦示例库"
+    type: dameng
+    url: jdbc:dm://127.0.0.1:5236
+    username: YOUR_DB_USER
+    password: YOUR_DB_PASSWORD
+    readonly: true
+  # - name: example-mysql
+  #   description: "MySQL 示例库"
+  #   type: mysql
+  #   url: jdbc:mysql://127.0.0.1:3306/your_db
+  #   username: YOUR_DB_USER
+  #   password: YOUR_DB_PASSWORD
+  #   readonly: false
+  # ------------------------------------------------------------------------
+  # Elasticsearch / Redis / Kafka 数据源示例（默认注释，按需取消注释并修改后启用）。
+  # 三者与关系型数据库共用同一套注册/持久化/Web 管理逻辑，readonly 控制写操作。
+  # ------------------------------------------------------------------------
+  # Elasticsearch（兼容 7.x / 8.x，基于低级 REST 客户端）：
+  #   - url：ES 基础地址，多节点用英文逗号分隔，如 http://a:9200,https://b:9200
+  #   - 认证二选一：username/password（basic）或 apiKey（ES API Key）
+  # - name: es-log
+  #   description: "日志检索集群"
+  #   type: elasticsearch
+  #   url: http://127.0.0.1:9200
+  #   username: elastic
+  #   password: changeme
+  #   # apiKey: "base64EncodedApiKey"   # 与 username/password 二选一
+  #   readonly: true
+  #
+  # Redis（单机部署，host/port/database；也可用 url: redis://host:port/db）：
+  # - name: redis-cache
+  #   description: "业务缓存"
+  #   type: redis
+  #   host: 127.0.0.1
+  #   port: 6379
+  #   database: 0
+  #   # username: default   # Redis 6+ ACL 可选
+  #   password: ""
+  #   readonly: true
+  #
+  # Kafka（只读运维诊断：列 topic / 看 topic 详情 / 消费者组 lag / 无副作用抓取最近消息）：
+  #   - url：bootstrap.servers，多节点用英文逗号分隔，如 host1:9092,host2:9092
+  #   - 无认证时只填 url；SASL 场景填 securityProtocol + saslMechanism + username/password
+  #   - 抓取消息严格无副作用（assign+seek、禁用提交、随机 group.id），不污染任何消费者组 offset
+  # - name: kafka-ops
+  #   description: "业务消息集群（只读诊断）"
+  #   type: kafka
+  #   url: 127.0.0.1:9092
+  #   # securityProtocol: SASL_PLAINTEXT   # 可选：PLAINTEXT / SASL_PLAINTEXT / SASL_SSL / SSL
+  #   # saslMechanism: PLAIN               # 可选：PLAIN / SCRAM-SHA-256 / SCRAM-SHA-512
+  #   # username: YOUR_KAFKA_USER          # 仅 SASL 时需要
+  #   # password: YOUR_KAFKA_PASSWORD      # 仅 SASL 时需要
+  #   readonly: true
+
+# ============================================================================
+# stdio 模式配置
+# ============================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: stdio
+  main:
+    # stdio 模式不启动 Web 容器
+    web-application-type: none
+  ai:
+    mcp:
+      server:
+        # 启用 stdio 传输
+        stdio: true
+
+logging:
+  level:
+    # stdio 模式使用标准输出通信，任何日志都会污染协议，故关闭
+    root: OFF
+
+# ============================================================================
+# http 模式配置（Streamable HTTP + Web 管理页面）
+# ============================================================================
+---
+spring:
+  config:
+    activate:
+      on-profile: http
+  main:
+    # http 模式启动 Servlet Web 容器
+    web-application-type: servlet
+  ai:
+    mcp:
+      server:
+        # Spring AI 1.1.x：通过 protocol 选择传输方式。
+        # STREAMABLE：MCP 2025-06-18 Streamable HTTP 传输，单一端点 /mcp（GET 建流 + POST 发消息）。
+        # 客户端连接地址必须指向 http://<host>:<port>/mcp（不能只填根地址，否则命中静态欢迎页返回 406）。
+        stdio: false
+        protocol: STREAMABLE
+
+server:
+  port: 8080
+  # ------------------------------------------------------------------------
+  # 【强烈建议】无内网隔离/公网暴露时启用 HTTPS，否则 X-Access-Token 会明文传输被窃听。
+  # 生成自签名证书示例：
+  #   keytool -genkeypair -alias mcp -keyalg RSA -keysize 2048 -storetype PKCS12 \
+  #           -keystore mcp-keystore.p12 -validity 3650 -storepass changeit
+  # 然后取消下面注释并填写实际路径/口令（或改用 Nginx/Caddy 反向代理终止 TLS）。
+  # ssl:
+  #   enabled: true
+  #   key-store: file:/path/to/mcp-keystore.p12
+  #   key-store-type: PKCS12
+  #   key-store-password: changeit
+  #   key-alias: mcp
+
+logging:
+  level:
+    root: INFO
+    com.dameng.mcp: INFO

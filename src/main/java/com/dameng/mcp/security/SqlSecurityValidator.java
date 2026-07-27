@@ -49,6 +49,17 @@ public class SqlSecurityValidator {
             Pattern.CASE_INSENSITIVE);
 
     /**
+     * DDL / 通用 SQL 场景下的黑名单：仅禁止高危操作。
+     * 允许 DDL（CREATE/ALTER/DROP/TRUNCATE/RENAME）及 DML 写入，
+     * 但禁止存储过程执行、文件读写等高危操作。
+     */
+    private static final Pattern DDL_BLACKLIST_KEYWORDS_PATTERN = Pattern.compile(
+            "\\b(EXEC|EXECUTE|CALL)\\b" +
+                    "|\\bINTO\\s+OUTFILE\\b" +
+                    "|\\bLOAD\\s+DATA\\b",
+            Pattern.CASE_INSENSITIVE);
+
+    /**
      * WHERE 子句检测：使用单词边界，避免与列名（如 WHEREVER）误判
      */
     private static final Pattern WHERE_CLAUSE_PATTERN =
@@ -203,6 +214,58 @@ public class SqlSecurityValidator {
         // 7. DELETE 无 WHERE 仅打印告警，由上层决定是否拦截
         if (DELETE_STATEMENT_PATTERN.matcher(cleanedSql).find() && !hasWhereClause(cleanedSql)) {
             log.warn("DELETE 语句未包含 WHERE 条件，将影响全表数据。SQL = {}", abbreviate(cleanedSql));
+        }
+
+        return cleanedSql;
+    }
+
+    /**
+     * 验证 DDL / 通用 SQL 安全性。
+     * <p>
+     * 允许 DDL（CREATE / ALTER / DROP / TRUNCATE / RENAME）以及 INSERT / UPDATE / DELETE
+     * 等任意 SQL 语句，但黑名单中仍禁止存储过程执行（EXEC/EXECUTE/CALL）及文件读写
+     * （INTO OUTFILE / LOAD DATA）等高危操作。多语句注入检测同样生效。
+     * </p>
+     * <p>此方法不检查只读，由上层 Service 负责只读拦截。</p>
+     *
+     * @param sql 待验证的 SQL
+     * @return 验证通过的清理后 SQL（已剥离注释）
+     * @throws SecurityException 验证失败时抛出
+     */
+    public String validateDdl(String sql) {
+        // 1. 空值检查
+        if (sql == null || sql.trim().isEmpty()) {
+            throw new SecurityException("SQL 不能为空");
+        }
+
+        // 2. 剥离注释
+        String cleanedSql = stripComments(sql).trim();
+        if (cleanedSql.isEmpty()) {
+            throw new SecurityException("SQL 在剥离注释后为空");
+        }
+
+        // 3. 黑名单：仅禁止高危操作（EXEC/CALL/文件读写），不限制 DDL/DML
+        Matcher blacklistMatcher = DDL_BLACKLIST_KEYWORDS_PATTERN.matcher(cleanedSql);
+        if (blacklistMatcher.find()) {
+            String keyword = blacklistMatcher.group();
+            log.warn("DDL SQL 安全检查失败：命中黑名单关键字 [{}]。SQL = {}", keyword, abbreviate(cleanedSql));
+            throw new SecurityException("SQL 中包含禁止使用的关键字：" + keyword);
+        }
+
+        // 4. 多语句注入检测：剥离字符串字面量后禁止出现额外分号
+        String literalStripped = stripStringLiterals(cleanedSql);
+        String trimmed = literalStripped.trim();
+        if (trimmed.endsWith(";")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        if (trimmed.contains(";")) {
+            log.warn("DDL SQL 安全检查失败：检测到多语句注入。SQL = {}", abbreviate(cleanedSql));
+            throw new SecurityException("禁止在 SQL 中使用分号执行多条语句");
+        }
+
+        // 5. 子查询中的危险操作检测
+        if (DDL_BLACKLIST_KEYWORDS_PATTERN.matcher(literalStripped).find()) {
+            throw new SecurityException("SQL 子查询中包含禁止使用的关键字");
         }
 
         return cleanedSql;

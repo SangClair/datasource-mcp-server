@@ -36,4 +36,17 @@ public interface DatabaseAdapter {
      * @return 影响的行数
      */
     int executeUpdate(String sql);
+
+    /**
+     * 执行 DDL 或通用 SQL（CREATE / ALTER / DROP / TRUNCATE 等）。
+     * <p>
+     * 实现类必须先通过 {@code SqlSecurityValidator#validateDdl(String)} 进行安全校验，
+     * 只读数据源必须拒绝执行。底层通过 JDBC {@code execute()} 执行，
+     * 不返回结果集，仅返回是否成功执行。
+     * </p>
+     *
+     * @param sql 已验证的 DDL / 通用 SQL
+     * @return true 表示执行成功
+     */
+    boolean executeRaw(String sql);
 }

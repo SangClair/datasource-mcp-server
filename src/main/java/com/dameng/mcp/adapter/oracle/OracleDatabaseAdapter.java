@@ -253,6 +253,22 @@ public class OracleDatabaseAdapter implements DatabaseAdapter {
         }
     }
 
+    @Override
+    public boolean executeRaw(String sql) {
+        if (this.readonly) {
+            throw new SecurityException("当前数据源为只读模式，禁止执行 DDL 或通用 SQL");
+        }
+        String validatedSql = securityValidator.validateDdl(sql);
+        log.debug("executeRaw SQL: {}", validatedSql);
+        try {
+            Boolean result = jdbcTemplate.execute(validatedSql);
+            return result == null || result;
+        } catch (DataAccessException e) {
+            log.error("DDL/通用 SQL 执行失败：{}", validatedSql, e);
+            throw new RuntimeException("DDL/通用 SQL 执行失败：" + e.getMessage(), e);
+        }
+    }
+
     /**
      * 将 ResultSet 转换为 QueryResult 数据结构。
      */

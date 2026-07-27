@@ -50,6 +50,52 @@ public class DatabaseWriteService {
         return doWrite(datasource, sql, "DELETE");
     }
 
+    @Tool(description = "执行 DDL 或通用 SQL 语句（如 CREATE TABLE/INDEX/VIEW、ALTER TABLE、DROP TABLE/INDEX/VIEW、TRUNCATE TABLE、RENAME TABLE、CREATE SEQUENCE、GRANT、REVOKE 等）。【警告】此操作会修改数据库结构或权限，可能不可逆！仅可用于非只读数据源，禁止 EXEC/CALL/LOAD DATA 等高危操作。")
+    public String executeDdl(
+            @ToolParam(description = "数据源名称，通过 list_datasources 获取可用数据源。为空则使用默认数据源。必须为非只读数据源") String datasource,
+            @ToolParam(description = "DDL 或通用 SQL 语句，如: CREATE TABLE schema.table_name (id INT PRIMARY KEY, name VARCHAR(100))") String sql) {
+        // 1. 参数校验
+        if (sql == null || sql.trim().isEmpty()) {
+            return "参数错误：SQL 不能为空。";
+        }
+
+        // 2. 安全验证（黑名单 + 多语句注入检测）
+        try {
+            securityValidator.validateDdl(sql);
+        } catch (SecurityException se) {
+            log.warn("DDL SQL 被安全策略拒绝：{}", sql, se);
+            return "操作被安全策略拒绝：" + safeMessage(se);
+        }
+
+        // 3. 只读数据源拦截
+        String resolvedName = (datasource == null || datasource.trim().isEmpty()) ? registry.getDefaultName() : datasource;
+        if (registry.isReadonly(resolvedName)) {
+            return "操作被拒绝：数据源 [" + resolvedName + "] 配置为只读模式，不允许执行 DDL 或通用 SQL。";
+        }
+
+        // 4. 路由到对应数据源并执行
+        try {
+            DatabaseAdapter adapter = resolveAdapter(datasource);
+            long startTime = System.currentTimeMillis();
+            adapter.executeRaw(sql);
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            StringBuilder result = new StringBuilder();
+            result.append("执行成功。\n");
+            result.append("- 数据源：").append(displayDatasource(datasource)).append("\n");
+            result.append("- 执行耗时：").append(elapsed).append("ms\n");
+            return result.toString();
+        } catch (IllegalArgumentException iae) {
+            return "数据源不存在：" + safeMessage(iae);
+        } catch (SecurityException se) {
+            log.warn("DDL SQL 被安全策略拒绝：{}", sql, se);
+            return "操作被安全策略拒绝：" + safeMessage(se);
+        } catch (Exception e) {
+            log.error("DDL/通用 SQL 执行失败：datasource={}, sql={}", datasource, sql, e);
+            return "DDL/通用 SQL 执行失败：" + safeMessage(e);
+        }
+    }
+
     /**
      * 执行写操作的统一流程：参数校验 → 操作类型校验 → 安全校验 → 警告生成 → JDBC 执行。
      *

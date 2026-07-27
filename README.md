@@ -12,7 +12,7 @@
 - **Web 动态数据源管理**：http 模式下提供内置 Web 页面 + REST API，可在运行时新增/**编辑**/删除/测试数据源，配置持久化到嵌入式 **H2 数据库**，重启自动恢复
 - **多数据源支持**：支持同时配置多个数据源，每个数据源可设置独立的名称和用途描述，运行时按名称路由
 - **多数据源类型**：内置达梦、Oracle、MySQL 关系型适配器，以及 Elasticsearch、Redis、Kafka 适配器，统一注册/管理/持久化逻辑
-- **关系型数据库工具（11 个）**：数据源列表、Schema 列表、表列表、表结构、SQL 查询、样本数据、表统计、列统计，及 INSERT / UPDATE / DELETE
+- **关系型数据库工具（12 个）**：数据源列表、Schema 列表、表列表、表结构、SQL 查询、样本数据、表统计、列统计，及 INSERT / UPDATE / DELETE / DDL·通用 SQL
 - **Elasticsearch 工具（6 个）**：列索引、查 mapping、统计文档数、DSL 查询，及写入/删除文档
 - **Redis 工具（6 个）**：扫描 key、查看 key 元信息、读取值，及 SET / DEL / EXPIRE
 - **Kafka 工具（4 个，只读）**：列 topic、查 topic 详情、列消费者组及 lag、无副作用抓取最近消息
@@ -289,7 +289,7 @@ logging:
 | url | 条件 | - | 关系型为 JDBC URL；ES 为 HTTP 地址（多节点逗号分隔）；Redis 可用 `redis://host:port/db` 代替 host/port/database；Kafka 为 bootstrap.servers（多个 broker 逗号分隔） |
 | username | 条件 | - | 关系型/ES 用户名；Redis 6+ ACL 可选；Kafka SASL 认证时使用 |
 | password | 条件 | - | 连接密码 |
-| readonly | 否 | false | 只读数据源，为 true 时拒绝一切写操作（SQL 写入 / ES 写删 / Redis SET·DEL·EXPIRE；Kafka 恒为只读） |
+| readonly | 否 | false | 只读数据源，为 true 时拒绝一切写操作（SQL 写入 / DDL·通用 SQL / ES 写删 / Redis SET·DEL·EXPIRE；Kafka 恒为只读） |
 | host | 条件 | - | **Redis 专用**：主机地址（未用 url 时） |
 | port | 否 | 6379 | **Redis 专用**：端口 |
 | database | 否 | 0 | **Redis 专用**：数据库索引 |
@@ -456,7 +456,7 @@ logging:
 
 ## 可用工具列表
 
-> 共 27 个 MCP 工具：关系型数据库 11 个 + Elasticsearch 6 个 + Redis 6 个 + Kafka 4 个。所有工具的 `datasource` 参数均可选，留空时使用对应类型的默认（首个）数据源。
+> 共 28 个 MCP 工具：关系型数据库 12 个 + Elasticsearch 6 个 + Redis 6 个 + Kafka 4 个。所有工具的 `datasource` 参数均可选，留空时使用对应类型的默认（首个）数据源。
 
 ### 元数据工具（关系型）
 
@@ -488,8 +488,9 @@ logging:
 | `execute_insert` | 执行 INSERT 插入操作 ⚠️ | `datasource`（可选）：数据源名称<br>`sql`（必填）：INSERT SQL 语句 |
 | `execute_update` | 执行 UPDATE 更新操作 ⚠️ | `datasource`（可选）：数据源名称<br>`sql`（必填）：UPDATE SQL 语句 |
 | `execute_delete` | 执行 DELETE 删除操作 ⚠️ | `datasource`（可选）：数据源名称<br>`sql`（必填）：DELETE SQL 语句 |
+| `execute_ddl` | 执行 DDL 或通用 SQL（CREATE/ALTER/DROP/TRUNCATE/RENAME/GRANT/REVOKE 等）⚠️ | `datasource`（可选）：数据源名称，**必须为非只读数据源**<br>`sql`（必填）：DDL 或通用 SQL 语句 |
 
-> **⚠️ 写操作工具**会在 MCP 客户端弹出确认对话框，用户确认后才会执行；只读数据源会直接拒绝。
+> **⚠️ 写操作工具**会在 MCP 客户端弹出确认对话框，用户确认后才会执行；只读数据源会直接拒绝。`execute_ddl` 仅可用于非只读数据源。
 
 ### Elasticsearch 工具
 
@@ -558,6 +559,18 @@ logging:
 - DCL：`GRANT`、`REVOKE`
 - 危险操作：`EXEC`、`EXECUTE`、`CALL`、`INTO OUTFILE`、`LOAD DATA`
 
+### DDL / 通用 SQL 安全
+
+`execute_ddl` 工具使用宽松的安全策略，允许任意 SQL 语句类型，但保留对高危操作的拦截：
+
+**黑名单（禁止的关键字）：**
+- 存储过程执行：`EXEC`、`EXECUTE`、`CALL`
+- 文件读写：`INTO OUTFILE`、`LOAD DATA`
+
+**额外约束：**
+- 仅允许非只读数据源执行，只读数据源直接拒绝
+- 多语句注入检测仍然生效（禁止分号拼接多条 SQL）
+
 ### 多层防护矩阵
 
 | 防护层 | 机制 | 说明 |
@@ -568,12 +581,13 @@ logging:
 | 多语句注入检测 | 剥离字符串后检测分号 | 防止 SQL 注入攻击 |
 | 标识符校验 | 仅允许字母/数字/下划线/点号 | 防止拼接注入 |
 | 操作类型匹配 | 工具与 SQL 类型强绑定 | `executeInsert` 只允许 INSERT |
+| DDL 只读拦截 | 只读数据源禁止 DDL | `executeDdl` 仅允许非只读源 |
 | WHERE 条件检测 | UPDATE/DELETE 缺少 WHERE 时告警 | 防止全表操作 |
 | 行数限制 | 自动包装 LIMIT/ROWNUM | 防止大结果集 |
 
 ### MCP 客户端确认机制
 
-写操作工具（`execute_insert`、`execute_update`、`execute_delete`）的 `@Tool` 注解中包含明确的**警告描述**。MCP 协议规范要求客户端在执行具有副作用的操作前向用户展示确认对话框。
+写操作工具（`execute_insert`、`execute_update`、`execute_delete`、`execute_ddl`）的 `@Tool` 注解中包含明确的**警告描述**。MCP 协议规范要求客户端在执行具有副作用的操作前向用户展示确认对话框。
 
 工作流程：
 1. LLM 生成写入 SQL 并调用写操作工具
@@ -760,4 +774,4 @@ dameng-mcp-server/
    - MySQL：`jdbc:mysql://host:3306/db?useSSL=false&characterEncoding=UTF-8&serverTimezone=UTC`
    - 达梦/Oracle：默认 UTF-8，通常无需额外配置
 
-7. **写操作风险**：写操作工具（INSERT/UPDATE/DELETE）会实际修改数据库数据。虽然有多层安全防护和客户端确认机制，仍建议在**非生产环境**中先行验证 SQL 的正确性。
+7. **写操作风险**：写操作工具（INSERT/UPDATE/DELETE/DDL）会实际修改数据库数据和结构。虽然有多层安全防护和客户端确认机制，仍建议在**非生产环境**中先行验证 SQL 的正确性。DDL 操作（如 DROP TABLE）可能不可逆，请格外谨慎。
