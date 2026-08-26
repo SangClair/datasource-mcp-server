@@ -4,6 +4,7 @@ import com.dameng.mcp.adapter.DatabaseAdapter;
 import com.dameng.mcp.adapter.DataSourceRegistry;
 import com.dameng.mcp.model.ColumnStatistics;
 import com.dameng.mcp.model.TableStatistics;
+import com.dameng.mcp.util.ConnectionError;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -59,6 +60,9 @@ public class DatabaseStatisticsService {
             return "数据源不存在：" + safeMessage(iae);
         } catch (Exception e) {
             log.error("getTableStatistics 执行失败：datasource={}, schema={}, table={}", datasource, schema, table, e);
+            if (ConnectionError.isConnectionFailure(e)) {
+                return ConnectionError.describe(e, displayDatasource(datasource));
+            }
             return "查询表 [" + schema + "." + table + "] 统计信息失败：" + safeMessage(e);
         }
     }
@@ -100,6 +104,9 @@ public class DatabaseStatisticsService {
         } catch (Exception e) {
             log.error("getColumnStatistics 执行失败：datasource={}, schema={}, table={}, column={}",
                     datasource, schema, table, column, e);
+            if (ConnectionError.isConnectionFailure(e)) {
+                return ConnectionError.describe(e, displayDatasource(datasource));
+            }
             return "查询列 [" + schema + "." + table + "." + column + "] 统计信息失败：" + safeMessage(e);
         }
     }

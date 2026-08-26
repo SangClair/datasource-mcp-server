@@ -131,6 +131,25 @@ public class DataSourceProperties {
          */
         private long maxWait = 60000;
 
+        // ---------- 连接失败熔断参数（防止密码错误时反复重试导致账号锁定）----------
+
+        /**
+         * 获取物理连接连续失败的最大重试次数。达到上限后连接池进入熔断状态，
+         * 暂停获取新连接一段时间，避免用错误的账号密码反复连接数据库。
+         */
+        private int connectionErrorRetryAttempts = 3;
+
+        /**
+         * 获取连接连续失败达到 {@link #connectionErrorRetryAttempts} 次后是否熔断。
+         * true 表示熔断，此后一段时间内不再发起新的连接，防止账号被锁定。
+         */
+        private boolean breakAfterAcquireFailure = true;
+
+        /**
+         * 熔断后暂停多久（毫秒）再允许尝试获取连接。
+         */
+        private long timeBetweenConnectErrorMillis = 3000;
+
         // ---------- Elasticsearch / Redis 专用可选字段 ----------
 
         /**

@@ -6,6 +6,7 @@ import com.dameng.mcp.model.ColumnInfo;
 import com.dameng.mcp.model.DataSourceInfo;
 import com.dameng.mcp.model.TableDefinition;
 import com.dameng.mcp.model.TableInfo;
+import com.dameng.mcp.util.ConnectionError;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -85,6 +86,9 @@ public class DatabaseMetadataService {
             return "数据源不存在：" + safeMessage(iae);
         } catch (Exception e) {
             log.error("listSchemas 执行失败：datasource={}", datasource, e);
+            if (ConnectionError.isConnectionFailure(e)) {
+                return ConnectionError.describe(e, displayDatasource(datasource));
+            }
             return "查询数据库模式列表失败：" + safeMessage(e);
         }
     }
@@ -118,6 +122,9 @@ public class DatabaseMetadataService {
             return "数据源不存在：" + safeMessage(iae);
         } catch (Exception e) {
             log.error("listTables 执行失败：datasource={}, schema={}", datasource, schema, e);
+            if (ConnectionError.isConnectionFailure(e)) {
+                return ConnectionError.describe(e, displayDatasource(datasource));
+            }
             return "查询模式 [" + schema + "] 下的表列表失败：" + safeMessage(e);
         }
     }
@@ -164,6 +171,9 @@ public class DatabaseMetadataService {
             return "数据源不存在：" + safeMessage(iae);
         } catch (Exception e) {
             log.error("describeTable 执行失败：datasource={}, schema={}, table={}", datasource, schema, table, e);
+            if (ConnectionError.isConnectionFailure(e)) {
+                return ConnectionError.describe(e, displayDatasource(datasource));
+            }
             return "查询表 [" + schema + "." + table + "] 结构失败：" + safeMessage(e);
         }
     }

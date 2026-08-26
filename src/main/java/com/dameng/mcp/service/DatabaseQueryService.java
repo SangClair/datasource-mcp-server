@@ -3,6 +3,7 @@ package com.dameng.mcp.service;
 import com.dameng.mcp.adapter.DatabaseAdapter;
 import com.dameng.mcp.adapter.DataSourceRegistry;
 import com.dameng.mcp.model.QueryResult;
+import com.dameng.mcp.util.ConnectionError;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -71,6 +72,9 @@ public class DatabaseQueryService {
                     + "\n本服务的查询接口仅允许执行只读 SELECT 查询，禁止任何修改类操作（INSERT/UPDATE/DELETE/DDL 等）。";
         } catch (Exception e) {
             log.error("executeQuery 执行失败：datasource={}, sql={}", datasource, sql, e);
+            if (ConnectionError.isConnectionFailure(e)) {
+                return ConnectionError.describe(e, displayDatasource(datasource));
+            }
             return "SQL 执行失败：" + safeMessage(e);
         }
     }
@@ -97,6 +101,9 @@ public class DatabaseQueryService {
         } catch (Exception e) {
             log.error("getSampleData 执行失败：datasource={}, schema={}, table={}, limit={}",
                     datasource, schema, table, effectiveLimit, e);
+            if (ConnectionError.isConnectionFailure(e)) {
+                return ConnectionError.describe(e, displayDatasource(datasource));
+            }
             return "获取表 [" + schema + "." + table + "] 样本数据失败：" + safeMessage(e);
         }
     }

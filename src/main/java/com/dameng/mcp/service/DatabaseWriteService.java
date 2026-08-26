@@ -3,6 +3,7 @@ package com.dameng.mcp.service;
 import com.dameng.mcp.adapter.DatabaseAdapter;
 import com.dameng.mcp.adapter.DataSourceRegistry;
 import com.dameng.mcp.security.SqlSecurityValidator;
+import com.dameng.mcp.util.ConnectionError;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
@@ -92,6 +93,9 @@ public class DatabaseWriteService {
             return "操作被安全策略拒绝：" + safeMessage(se);
         } catch (Exception e) {
             log.error("DDL/通用 SQL 执行失败：datasource={}, sql={}", datasource, sql, e);
+            if (ConnectionError.isConnectionFailure(e)) {
+                return ConnectionError.describe(e, displayDatasource(datasource));
+            }
             return "DDL/通用 SQL 执行失败：" + safeMessage(e);
         }
     }
@@ -159,6 +163,9 @@ public class DatabaseWriteService {
             return "操作被安全策略拒绝：" + safeMessage(se);
         } catch (Exception e) {
             log.error("{} 执行失败：datasource={}, sql={}", expectedType, datasource, sql, e);
+            if (ConnectionError.isConnectionFailure(e)) {
+                return ConnectionError.describe(e, displayDatasource(datasource));
+            }
             return expectedType + " 执行失败：" + safeMessage(e);
         }
     }

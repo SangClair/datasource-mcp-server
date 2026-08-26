@@ -218,6 +218,9 @@ public class DataSourceManager {
         copy.setMinIdle(cfg.getMinIdle());
         copy.setMaxActive(cfg.getMaxActive());
         copy.setMaxWait(cfg.getMaxWait());
+        copy.setConnectionErrorRetryAttempts(cfg.getConnectionErrorRetryAttempts());
+        copy.setBreakAfterAcquireFailure(cfg.isBreakAfterAcquireFailure());
+        copy.setTimeBetweenConnectErrorMillis(cfg.getTimeBetweenConnectErrorMillis());
         copy.setHost(cfg.getHost());
         copy.setPort(cfg.getPort());
         copy.setDatabase(cfg.getDatabase());

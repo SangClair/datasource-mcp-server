@@ -85,6 +85,13 @@ public class DatabaseAdapterFactory {
         ds.setValidationQuery(getValidationQuery(config.getType()));
         ds.setTimeBetweenEvictionRunsMillis(60000);
 
+        // 连接失败熔断保护：当账号密码错误或数据库不可达时，终止无限重试。
+        // 默认在连续失败 connectionErrorRetryAttempts 次后熔断一段时间，
+        // 避免每次请求都反复尝试连接数据库，导致达梦账号因认证失败过多而被锁定。
+        ds.setConnectionErrorRetryAttempts(config.getConnectionErrorRetryAttempts());
+        ds.setBreakAfterAcquireFailure(config.isBreakAfterAcquireFailure());
+        ds.setTimeBetweenConnectErrorMillis(config.getTimeBetweenConnectErrorMillis());
+
         // 只读数据源在 DataSource 层设置默认只读连接属性，作为 JDBC 驱动级别的第三重拦截。
         // 部分数据库驱动会据此拒绝写操作，不支持的驱动也不会报错。
         if (config.isReadonly()) {
