@@ -42,7 +42,7 @@ public class DataSourceController {
     }
 
     /**
-     * 列出所有已注册数据源（不含密码）。
+     * 列出已注册数据源及恢复失败的持久化动态数据源（不含密码）。
      */
     @GetMapping
     public ApiResponse<List<DataSourceInfo>> list(HttpServletRequest request) {

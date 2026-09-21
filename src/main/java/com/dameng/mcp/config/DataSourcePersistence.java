@@ -52,13 +52,22 @@ public class DataSourcePersistence {
                     "HOST VARCHAR(255), " +
                     "PORT INT, " +
                     "DATABASE_INDEX INT, " +
-                    "API_KEY VARCHAR(2048)" +
+                    "API_KEY VARCHAR(2048), " +
+                    "SECURITY_PROTOCOL VARCHAR(50), " +
+                    "SASL_MECHANISM VARCHAR(50)" +
                     ")";
+
+    /** 旧版 H2 表的向后兼容迁移，可重复执行。 */
+    private static final List<String> MIGRATIONS = List.of(
+            "ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS SECURITY_PROTOCOL VARCHAR(50)",
+            "ALTER TABLE " + TABLE + " ADD COLUMN IF NOT EXISTS SASL_MECHANISM VARCHAR(50)"
+    );
 
     private static final String INSERT_SQL =
             "INSERT INTO " + TABLE + " (NAME, DESCRIPTION, TYPE, URL, USERNAME, PASSWORD, READONLY, " +
-                    "INITIAL_SIZE, MIN_IDLE, MAX_ACTIVE, MAX_WAIT, HOST, PORT, DATABASE_INDEX, API_KEY) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    "INITIAL_SIZE, MIN_IDLE, MAX_ACTIVE, MAX_WAIT, HOST, PORT, DATABASE_INDEX, API_KEY, " +
+                    "SECURITY_PROTOCOL, SASL_MECHANISM) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String SELECT_SQL = "SELECT * FROM " + TABLE;
 
@@ -78,7 +87,8 @@ public class DataSourcePersistence {
         } else {
             this.basePath = Paths.get(System.getProperty("user.home"), ".dameng-mcp", "datasources");
         }
-        this.jdbcUrl = "jdbc:h2:file:" + basePath.toAbsolutePath() + ";AUTO_SERVER=TRUE";
+        this.jdbcUrl = "jdbc:h2:file:" + basePath.toAbsolutePath()
+                + (properties.isDynamicDatasourceH2AutoServer() ? ";AUTO_SERVER=TRUE" : "");
         this.username = properties.getDynamicDatasourceH2Username();
         this.password = properties.getDynamicDatasourceH2Password() == null
                 ? "" : properties.getDynamicDatasourceH2Password();
@@ -100,6 +110,9 @@ public class DataSourcePersistence {
         try (Connection conn = openConnection();
              Statement stmt = conn.createStatement()) {
             stmt.execute(DDL);
+            for (String migration : MIGRATIONS) {
+                stmt.execute(migration);
+            }
         } catch (SQLException e) {
             log.error("初始化动态数据源持久化表失败: {}", jdbcUrl, e);
             throw new RuntimeException("初始化 H2 持久化表失败: " + e.getMessage(), e);
@@ -185,6 +198,8 @@ public class DataSourcePersistence {
         item.setPort(getNullableInt(rs, "PORT"));
         item.setDatabase(getNullableInt(rs, "DATABASE_INDEX"));
         item.setApiKey(rs.getString("API_KEY"));
+        item.setSecurityProtocol(rs.getString("SECURITY_PROTOCOL"));
+        item.setSaslMechanism(rs.getString("SASL_MECHANISM"));
         // 从持久化加载的数据源统一标记为动态
         item.setDynamic(true);
         return item;
@@ -206,6 +221,8 @@ public class DataSourcePersistence {
         setNullableInt(ps, 13, item.getPort());
         setNullableInt(ps, 14, item.getDatabase());
         ps.setString(15, item.getApiKey());
+        ps.setString(16, item.getSecurityProtocol());
+        ps.setString(17, item.getSaslMechanism());
     }
 
     private Integer getNullableInt(ResultSet rs, String column) throws SQLException {

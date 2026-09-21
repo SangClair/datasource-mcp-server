@@ -108,6 +108,29 @@ public class DatabaseQueryService {
         }
     }
 
+    public QueryResult executeQueryRecord(String datasource, String sql, int maxRows) {
+        if (sql == null || sql.trim().isEmpty()) {
+            throw new IllegalArgumentException("sql 不能为空");
+        }
+        int internalLimit = Math.min(Math.max(maxRows, 1), LIMIT_MAX_ROWS + 1);
+        return resolveAdapter(datasource).executeQuery(sql, internalLimit);
+    }
+
+    public List<Map<String, Object>> sampleRows(String datasource, String schema, String table, int limit) {
+        if (schema == null || schema.trim().isEmpty()) {
+            throw new IllegalArgumentException("schema 不能为空");
+        }
+        if (table == null || table.trim().isEmpty()) {
+            throw new IllegalArgumentException("table 不能为空");
+        }
+        int internalLimit = Math.min(Math.max(limit, 1), LIMIT_MAX_ROWS + 1);
+        return resolveAdapter(datasource).executeSampleQuery(schema, table, internalLimit);
+    }
+
+    public String resolvedDatasource(String datasource) {
+        return displayDatasource(datasource);
+    }
+
     /* ====================== 内部工具方法 ====================== */
 
     /**

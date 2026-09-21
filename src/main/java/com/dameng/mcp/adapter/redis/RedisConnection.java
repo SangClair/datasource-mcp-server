@@ -8,6 +8,7 @@ import redis.clients.jedis.resps.ScanResult;
 import redis.clients.jedis.resps.Tuple;
 
 import java.util.ArrayList;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,12 @@ import java.util.Map;
  */
 @Slf4j
 public class RedisConnection implements AutoCloseable {
+
+    public record ScanPage<T>(List<T> items, String nextCursor, boolean hasMore) {
+    }
+
+    public record ValuePage(String type, Object value, String nextCursor, boolean hasMore, boolean truncated) {
+    }
 
     private final JedisPool jedisPool;
     private final boolean readonly;
@@ -63,6 +70,16 @@ public class RedisConnection implements AutoCloseable {
             return new ArrayList<>(keys.subList(0, count));
         }
         return keys;
+    }
+
+    public ScanPage<String> scanKeysPage(String pattern, String cursor, int count) {
+        String matchPattern = (pattern == null || pattern.trim().isEmpty()) ? "*" : pattern;
+        ScanParams params = new ScanParams().match(matchPattern).count(Math.max(count, 10));
+        try (Jedis jedis = jedisPool.getResource()) {
+            ScanResult<String> result = jedis.scan(cursor == null ? ScanParams.SCAN_POINTER_START : cursor, params);
+            boolean hasMore = !ScanParams.SCAN_POINTER_START.equals(result.getCursor());
+            return new ScanPage<>(List.copyOf(result.getResult()), result.getCursor(), hasMore);
+        }
     }
 
     /**
@@ -110,6 +127,76 @@ public class RedisConnection implements AutoCloseable {
                 default:
                     return null;
             }
+        }
+    }
+
+    public ValuePage getValuePage(String key, String cursor, int limit, int maxChars) {
+        long offset = parseOffset(cursor);
+        try (Jedis jedis = jedisPool.getResource()) {
+            String type = jedis.type(key);
+            switch (type) {
+                case "string": {
+                    long length = jedis.strlen(key);
+                    byte[] bytes = jedis.getrange(key.getBytes(StandardCharsets.UTF_8),
+                            offset, offset + maxChars - 1L);
+                    String value = new String(bytes, StandardCharsets.UTF_8);
+                    long next = offset + bytes.length;
+                    boolean more = next < length;
+                    return new ValuePage(type, value, more ? Long.toString(next) : "0", more, more);
+                }
+                case "list": {
+                    long length = jedis.llen(key);
+                    List<String> values = jedis.lrange(key, offset, offset + limit - 1L);
+                    long next = offset + values.size();
+                    boolean more = next < length;
+                    return new ValuePage(type, values, more ? Long.toString(next) : "0", more, false);
+                }
+                case "set": {
+                    ScanResult<String> result = jedis.sscan(key, cursorOrZero(cursor),
+                            new ScanParams().count(limit));
+                    boolean more = !"0".equals(result.getCursor());
+                    return new ValuePage(type, result.getResult(), result.getCursor(), more, false);
+                }
+                case "hash": {
+                    ScanResult<Map.Entry<String, String>> result = jedis.hscan(key, cursorOrZero(cursor),
+                            new ScanParams().count(limit));
+                    List<Map<String, String>> values = new ArrayList<>();
+                    for (Map.Entry<String, String> entry : result.getResult()) {
+                        values.add(Map.of("field", entry.getKey(), "value", entry.getValue()));
+                    }
+                    boolean more = !"0".equals(result.getCursor());
+                    return new ValuePage(type, values, result.getCursor(), more, false);
+                }
+                case "zset": {
+                    ScanResult<Tuple> result = jedis.zscan(key, cursorOrZero(cursor),
+                            new ScanParams().count(limit));
+                    List<Map<String, Object>> values = new ArrayList<>();
+                    for (Tuple tuple : result.getResult()) {
+                        values.add(Map.of("member", tuple.getElement(), "score", tuple.getScore()));
+                    }
+                    boolean more = !"0".equals(result.getCursor());
+                    return new ValuePage(type, values, result.getCursor(), more, false);
+                }
+                case "none":
+                default:
+                    return new ValuePage(type, null, "0", false, false);
+            }
+        }
+    }
+
+    private String cursorOrZero(String cursor) {
+        return cursor == null || cursor.isBlank() ? "0" : cursor;
+    }
+
+    private long parseOffset(String cursor) {
+        try {
+            long value = Long.parseLong(cursorOrZero(cursor));
+            if (value < 0) {
+                throw new NumberFormatException("negative");
+            }
+            return value;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Redis cursor 无效", e);
         }
     }
 

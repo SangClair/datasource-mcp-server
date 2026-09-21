@@ -77,7 +77,8 @@ public class DataSourceConfig {
                 manager.registerStartup(item);
                 log.info("恢复动态数据源: name={}, type={}", item.getName(), item.getType());
             } catch (Exception e) {
-                log.error("恢复动态数据源 [{}] 失败，已跳过: {}", item.getName(), e.getMessage());
+                manager.recordUnavailableDynamic(item, e);
+                log.error("恢复动态数据源 [{}] 失败，已标记为恢复失败: {}", item.getName(), e.getMessage());
             }
         }
 

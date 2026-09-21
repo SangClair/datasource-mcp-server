@@ -213,7 +213,7 @@ public class SqlSecurityValidator {
 
         // 7. DELETE 无 WHERE 仅打印告警，由上层决定是否拦截
         if (DELETE_STATEMENT_PATTERN.matcher(cleanedSql).find() && !hasWhereClause(cleanedSql)) {
-            log.warn("DELETE 语句未包含 WHERE 条件，将影响全表数据。SQL = {}", abbreviate(cleanedSql));
+            log.warn("DELETE 语句未包含 WHERE 条件，将影响全表数据；SQL 正文由上层审计日志以哈希记录");
         }
 
         return cleanedSql;

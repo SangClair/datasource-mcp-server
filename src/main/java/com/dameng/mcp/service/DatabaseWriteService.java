@@ -9,6 +9,12 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.List;
+
 /**
  * 数据库写入 MCP 工具服务。
  * <p>
@@ -21,6 +27,14 @@ import org.springframework.stereotype.Service;
 @Slf4j
 @Service
 public class DatabaseWriteService {
+
+    public record WriteOperationResult(String datasource, String operation, int affectedRows,
+                                       long durationMs, boolean unsafeScope, List<String> warnings) {
+    }
+
+    public record SqlOperationResult(String datasource, String statementType, long durationMs,
+                                     boolean unsafeScope, List<String> warnings) {
+    }
 
     private final DataSourceRegistry registry;
     private final SqlSecurityValidator securityValidator;
@@ -64,7 +78,7 @@ public class DatabaseWriteService {
         try {
             securityValidator.validateDdl(sql);
         } catch (SecurityException se) {
-            log.warn("DDL SQL 被安全策略拒绝：{}", sql, se);
+            log.warn("DDL SQL 被安全策略拒绝：sqlHash={}", sqlHash(sql), se);
             return "操作被安全策略拒绝：" + safeMessage(se);
         }
 
@@ -89,14 +103,117 @@ public class DatabaseWriteService {
         } catch (IllegalArgumentException iae) {
             return "数据源不存在：" + safeMessage(iae);
         } catch (SecurityException se) {
-            log.warn("DDL SQL 被安全策略拒绝：{}", sql, se);
+            log.warn("DDL SQL 被安全策略拒绝：sqlHash={}", sqlHash(sql), se);
             return "操作被安全策略拒绝：" + safeMessage(se);
         } catch (Exception e) {
-            log.error("DDL/通用 SQL 执行失败：datasource={}, sql={}", datasource, sql, e);
+            log.error("DDL/通用 SQL 执行失败：datasource={}, sqlHash={}", datasource, sqlHash(sql), e);
             if (ConnectionError.isConnectionFailure(e)) {
                 return ConnectionError.describe(e, displayDatasource(datasource));
             }
             return "DDL/通用 SQL 执行失败：" + safeMessage(e);
+        }
+    }
+
+    public WriteOperationResult executeWriteRecord(String datasource, String sql, String expectedType) {
+        requireSql(sql);
+        String operation = expectedType == null ? "" : expectedType.trim().toUpperCase();
+        String cleaned = securityValidator.validateWrite(sql);
+        if (!cleaned.toUpperCase().startsWith(operation)) {
+            throw new IllegalArgumentException("当前工具仅支持 " + operation + " 语句");
+        }
+        String resolvedName = resolvedName(datasource);
+        ensureWritable(resolvedName, "写操作");
+        boolean unsafeScope = ("UPDATE".equals(operation) || "DELETE".equals(operation))
+                && !securityValidator.hasWhereClause(cleaned);
+        List<String> warnings = unsafeScope
+                ? List.of(operation + " 语句未包含 WHERE 条件，将影响全表数据；本服务按配置继续执行。")
+                : List.of();
+        auditBefore(operation, resolvedName, cleaned, unsafeScope);
+        long start = System.currentTimeMillis();
+        try {
+            int affectedRows = resolveAdapter(datasource).executeUpdate(cleaned);
+            long duration = System.currentTimeMillis() - start;
+            auditAfter(operation, resolvedName, cleaned, affectedRows, duration, true);
+            return new WriteOperationResult(resolvedName, operation, affectedRows, duration, unsafeScope, warnings);
+        } catch (RuntimeException e) {
+            auditAfter(operation, resolvedName, cleaned, -1,
+                    System.currentTimeMillis() - start, false);
+            throw e;
+        }
+    }
+
+    public SqlOperationResult executeSqlRecord(String datasource, String sql) {
+        requireSql(sql);
+        String cleaned = securityValidator.validateDdl(sql);
+        String statementType = firstKeyword(cleaned);
+        String resolvedName = resolvedName(datasource);
+        ensureWritable(resolvedName, "通用 SQL");
+        boolean unsafeScope = ("UPDATE".equals(statementType) || "DELETE".equals(statementType))
+                && !securityValidator.hasWhereClause(cleaned);
+        List<String> warnings = unsafeScope
+                ? List.of(statementType + " 语句未包含 WHERE 条件，将影响全表数据；本服务按配置继续执行。")
+                : List.of("该工具会直接执行任意单条 SQL，客户端确认并非服务端强制安全边界。");
+        auditBefore(statementType, resolvedName, cleaned, unsafeScope);
+        long start = System.currentTimeMillis();
+        try {
+            resolveAdapter(datasource).executeRaw(cleaned);
+            long duration = System.currentTimeMillis() - start;
+            auditAfter(statementType, resolvedName, cleaned, -1, duration, true);
+            return new SqlOperationResult(resolvedName, statementType, duration, unsafeScope, warnings);
+        } catch (RuntimeException e) {
+            auditAfter(statementType, resolvedName, cleaned, -1,
+                    System.currentTimeMillis() - start, false);
+            throw e;
+        }
+    }
+
+    private void requireSql(String sql) {
+        if (sql == null || sql.trim().isEmpty()) {
+            throw new IllegalArgumentException("sql 不能为空");
+        }
+    }
+
+    private String resolvedName(String datasource) {
+        String resolved = datasource == null || datasource.trim().isEmpty() ? registry.getDefaultName() : datasource;
+        if (resolved == null || resolved.isBlank()) {
+            throw new IllegalArgumentException("未找到关系型数据源");
+        }
+        return resolved;
+    }
+
+    private void ensureWritable(String datasource, String operation) {
+        if (registry.isReadonly(datasource)) {
+            throw new SecurityException("数据源 [" + datasource + "] 配置为只读模式，不允许执行" + operation);
+        }
+    }
+
+    private String firstKeyword(String sql) {
+        String trimmed = sql == null ? "" : sql.trim();
+        int end = 0;
+        while (end < trimmed.length() && Character.isLetter(trimmed.charAt(end))) {
+            end++;
+        }
+        return end == 0 ? "UNKNOWN" : trimmed.substring(0, end).toUpperCase();
+    }
+
+    private void auditBefore(String operation, String datasource, String sql, boolean unsafeScope) {
+        log.warn("SQL_AUDIT phase=before operation={} datasource={} sqlHash={} unsafeScope={}",
+                operation, datasource, sqlHash(sql), unsafeScope);
+    }
+
+    private void auditAfter(String operation, String datasource, String sql,
+                            int affectedRows, long durationMs, boolean success) {
+        log.warn("SQL_AUDIT phase=after operation={} datasource={} sqlHash={} affectedRows={} durationMs={} success={}",
+                operation, datasource, sqlHash(sql), affectedRows, durationMs, success);
+    }
+
+    private String sqlHash(String sql) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(sql.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest, 0, 8);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
         }
     }
 
@@ -123,7 +240,7 @@ public class DatabaseWriteService {
         try {
             securityValidator.validateWrite(sql);
         } catch (SecurityException se) {
-            log.warn("写 SQL 被安全策略拒绝：{}", sql, se);
+            log.warn("写 SQL 被安全策略拒绝：sqlHash={}", sqlHash(sql), se);
             return "操作被安全策略拒绝：" + safeMessage(se);
         }
 
@@ -159,10 +276,11 @@ public class DatabaseWriteService {
             return "数据源不存在：" + safeMessage(iae);
         } catch (SecurityException se) {
             // Adapter 层只读硬拦截或二次安全校验可能抛出 SecurityException
-            log.warn("写 SQL 被安全策略拒绝：{}", sql, se);
+            log.warn("写 SQL 被安全策略拒绝：sqlHash={}", sqlHash(sql), se);
             return "操作被安全策略拒绝：" + safeMessage(se);
         } catch (Exception e) {
-            log.error("{} 执行失败：datasource={}, sql={}", expectedType, datasource, sql, e);
+            log.error("{} 执行失败：datasource={}, sqlHash={}",
+                    expectedType, datasource, sqlHash(sql), e);
             if (ConnectionError.isConnectionFailure(e)) {
                 return ConnectionError.describe(e, displayDatasource(datasource));
             }

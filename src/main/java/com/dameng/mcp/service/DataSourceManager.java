@@ -17,7 +17,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import javax.sql.DataSource;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -39,6 +42,8 @@ public class DataSourceManager {
     private final KafkaClientFactory kafkaFactory;
     private final DataSourceRegistry registry;
     private final DataSourcePersistence persistence;
+    private final Map<String, DataSourceProperties.DataSourceItem> unavailableDynamicConfigs = new LinkedHashMap<>();
+    private final Map<String, String> recoveryErrors = new LinkedHashMap<>();
 
     public DataSourceManager(DatabaseAdapterFactory factory,
                              ElasticsearchClientFactory esFactory,
@@ -84,10 +89,35 @@ public class DataSourceManager {
     }
 
     /**
-     * 列出所有已注册数据源的元信息。
+     * 记录启动时无法恢复的动态数据源，使其仍可在管理页面查看、编辑和删除。
      */
-    public List<DataSourceInfo> list() {
-        return registry.listDataSources();
+    public synchronized void recordUnavailableDynamic(DataSourceProperties.DataSourceItem item, Exception error) {
+        if (item == null || !StringUtils.hasText(item.getName()) || registry.exists(item.getName())) {
+            return;
+        }
+        item.setDynamic(true);
+        unavailableDynamicConfigs.put(item.getName(), item);
+        recoveryErrors.put(item.getName(), abbreviateError(error));
+    }
+
+    /**
+     * 列出已注册数据源以及启动恢复失败的持久化动态数据源。
+     */
+    public synchronized List<DataSourceInfo> list() {
+        List<DataSourceInfo> result = new ArrayList<>(registry.listDataSources());
+        for (Map.Entry<String, DataSourceProperties.DataSourceItem> entry : unavailableDynamicConfigs.entrySet()) {
+            DataSourceProperties.DataSourceItem config = entry.getValue();
+            DataSourceInfo info = new DataSourceInfo();
+            info.setName(entry.getKey());
+            info.setDescription(config.getDescription());
+            info.setType(config.getType());
+            info.setReadonly(config.isReadonly());
+            info.setDynamic(true);
+            info.setAvailable(false);
+            info.setError(recoveryErrors.get(entry.getKey()));
+            result.add(info);
+        }
+        return result;
     }
 
     /**
@@ -97,7 +127,7 @@ public class DataSourceManager {
      */
     public synchronized void add(DataSourceProperties.DataSourceItem item) {
         validate(item);
-        if (registry.exists(item.getName())) {
+        if (registry.exists(item.getName()) || unavailableDynamicConfigs.containsKey(item.getName())) {
             throw new IllegalArgumentException("数据源名称已存在: " + item.getName());
         }
         // 标记为动态数据源
@@ -107,7 +137,7 @@ public class DataSourceManager {
         registerStartup(item);
 
         // 持久化全部动态数据源
-        persistence.saveAll(registry.listDynamicConfigs());
+        persistAllDynamicConfigs();
         log.info("动态新增数据源成功: name={}, type={}", item.getName(), item.getType());
     }
 
@@ -120,15 +150,19 @@ public class DataSourceManager {
         if (!StringUtils.hasText(name)) {
             throw new IllegalArgumentException("数据源名称不能为空");
         }
-        DataSourceProperties.DataSourceItem config = registry.getConfig(name);
+        DataSourceProperties.DataSourceItem config = findConfig(name);
         if (config == null) {
             throw new IllegalArgumentException("未找到数据源: " + name);
         }
         if (!config.isDynamic()) {
             throw new IllegalArgumentException("数据源 [" + name + "] 为内置(application.yml)数据源，不允许通过 Web 删除");
         }
-        registry.unregister(name);
-        persistence.saveAll(registry.listDynamicConfigs());
+        if (registry.exists(name)) {
+            registry.unregister(name);
+        }
+        unavailableDynamicConfigs.remove(name);
+        recoveryErrors.remove(name);
+        persistAllDynamicConfigs();
         log.info("删除动态数据源成功: name={}", name);
     }
 
@@ -144,7 +178,7 @@ public class DataSourceManager {
      */
     public synchronized void update(DataSourceProperties.DataSourceItem item) {
         validate(item);
-        DataSourceProperties.DataSourceItem existing = registry.getConfig(item.getName());
+        DataSourceProperties.DataSourceItem existing = findConfig(item.getName());
         if (existing == null) {
             throw new IllegalArgumentException("未找到数据源: " + item.getName());
         }
@@ -188,7 +222,9 @@ public class DataSourceManager {
                 registry.register(name, reg.adapter(), reg.dataSource(), item);
             }
         }
-        persistence.saveAll(registry.listDynamicConfigs());
+        unavailableDynamicConfigs.remove(name);
+        recoveryErrors.remove(name);
+        persistAllDynamicConfigs();
         log.info("修改动态数据源成功: name={}, type={}", name, item.getType());
     }
 
@@ -198,11 +234,11 @@ public class DataSourceManager {
      * @param name 数据源名称
      * @return 脱敏后的配置副本
      */
-    public DataSourceProperties.DataSourceItem getForEdit(String name) {
+    public synchronized DataSourceProperties.DataSourceItem getForEdit(String name) {
         if (!StringUtils.hasText(name)) {
             throw new IllegalArgumentException("数据源名称不能为空");
         }
-        DataSourceProperties.DataSourceItem cfg = registry.getConfig(name);
+        DataSourceProperties.DataSourceItem cfg = findConfig(name);
         if (cfg == null) {
             throw new IllegalArgumentException("未找到数据源: " + name);
         }
@@ -230,6 +266,29 @@ public class DataSourceManager {
         copy.setPassword("");
         copy.setApiKey("");
         return copy;
+    }
+
+    private DataSourceProperties.DataSourceItem findConfig(String name) {
+        DataSourceProperties.DataSourceItem config = registry.getConfig(name);
+        return config != null ? config : unavailableDynamicConfigs.get(name);
+    }
+
+    private void persistAllDynamicConfigs() {
+        Map<String, DataSourceProperties.DataSourceItem> merged = new LinkedHashMap<>();
+        for (DataSourceProperties.DataSourceItem item : registry.listDynamicConfigs()) {
+            merged.put(item.getName(), item);
+        }
+        for (Map.Entry<String, DataSourceProperties.DataSourceItem> entry : unavailableDynamicConfigs.entrySet()) {
+            merged.putIfAbsent(entry.getKey(), entry.getValue());
+        }
+        persistence.saveAll(new ArrayList<>(merged.values()));
+    }
+
+    private String abbreviateError(Exception error) {
+        String message = error == null || !StringUtils.hasText(error.getMessage())
+                ? "启动恢复失败"
+                : error.getMessage();
+        return message.length() <= 500 ? message : message.substring(0, 500) + "...";
     }
 
     /**

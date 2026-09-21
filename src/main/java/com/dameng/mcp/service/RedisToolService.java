@@ -177,6 +177,49 @@ public class RedisToolService {
         }
     }
 
+    public RedisConnection.ScanPage<String> scanKeyRecords(
+            String datasource, String pattern, String redisCursor, int limit) {
+        return registry.getRedis(datasource).scanKeysPage(pattern, redisCursor, normalizeCount(limit));
+    }
+
+    public Map<String, Object> keyInfoRecord(String datasource, String key) {
+        requireKey(key);
+        RedisConnection connection = registry.getRedis(datasource);
+        String type = connection.type(key);
+        return Map.of("key", key, "type", type, "ttl_seconds", connection.ttl(key));
+    }
+
+    public RedisConnection.ValuePage valueRecord(
+            String datasource, String key, String redisCursor, int limit, int maxChars) {
+        requireKey(key);
+        return registry.getRedis(datasource).getValuePage(key, redisCursor,
+                normalizeCount(limit), Math.max(1, maxChars));
+    }
+
+    public String setRecord(String datasource, String key, String value) {
+        requireKey(key);
+        return registry.getRedis(datasource).set(key, value);
+    }
+
+    public long deleteRecord(String datasource, String key) {
+        requireKey(key);
+        return registry.getRedis(datasource).delete(key);
+    }
+
+    public long expireRecord(String datasource, String key, int seconds) {
+        requireKey(key);
+        if (seconds <= 0) {
+            throw new IllegalArgumentException("seconds 必须为正整数");
+        }
+        return registry.getRedis(datasource).expire(key, seconds);
+    }
+
+    private void requireKey(String key) {
+        if (isBlank(key)) {
+            throw new IllegalArgumentException("key 不能为空");
+        }
+    }
+
     /* ====================== 内部工具方法 ====================== */
 
     @SuppressWarnings("unchecked")

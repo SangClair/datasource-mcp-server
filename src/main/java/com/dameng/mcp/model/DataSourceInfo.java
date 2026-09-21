@@ -19,7 +19,7 @@ public class DataSourceInfo {
     private String description;
 
     /**
-     * 数据库类型 (dameng/oracle/mysql)
+     * 数据库类型 (dameng/oracle/mysql/elasticsearch/redis/kafka)
      */
     private String type;
 
@@ -32,4 +32,14 @@ public class DataSourceInfo {
      * 是否为运行时动态添加的数据源（true=可通过 Web 删除，false=application.yml 内置）
      */
     private boolean dynamic;
+
+    /**
+     * 是否已成功建立连接并注册到运行时。
+     */
+    private boolean available = true;
+
+    /**
+     * 启动恢复失败原因，仅在 {@link #available} 为 false 时返回。
+     */
+    private String error;
 }

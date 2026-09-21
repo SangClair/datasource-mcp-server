@@ -42,6 +42,12 @@ public class DataSourceProperties {
     private String dynamicDatasourceH2Password = "";
 
     /**
+     * 是否为动态数据源 H2 文件库启用 AUTO_SERVER 多进程共享模式，默认启用。
+     * 测试或明确只有单进程访问时可关闭。
+     */
+    private boolean dynamicDatasourceH2AutoServer = true;
+
+    /**
      * Web 管理接口相关配置
      */
     private Web web = new Web();

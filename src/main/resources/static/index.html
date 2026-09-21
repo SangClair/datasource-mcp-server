@@ -29,6 +29,9 @@
         .tag-no { background: #dcfce7; color: #15803d; }
         .tag-dyn { background: #dbeafe; color: #1d4ed8; }
         .tag-builtin { background: #f1f5f9; color: #64748b; }
+        .tag-online { background: #dcfce7; color: #15803d; }
+        .tag-offline { background: #fee2e2; color: #b91c1c; }
+        .status-error { margin-top: 4px; max-width: 280px; color: #b91c1c; font-size: 12px; overflow-wrap: anywhere; }
         .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 20px; }
         .form-item { display: flex; flex-direction: column; }
         .form-item.full { grid-column: 1 / -1; }
@@ -80,15 +83,15 @@
     </div>
 
     <div class="card">
-        <h2>已注册数据源 <button class="btn-ghost" style="float:right;padding:4px 14px;font-size:13px;" onclick="loadList()">刷新</button></h2>
+        <h2>数据源配置 <button class="btn-ghost" style="float:right;padding:4px 14px;font-size:13px;" onclick="loadList()">刷新</button></h2>
         <table>
             <thead>
             <tr>
-                <th>名称</th><th>类型</th><th>只读</th><th>来源</th><th>描述</th><th>操作</th>
+                <th>名称</th><th>类型</th><th>状态</th><th>只读</th><th>来源</th><th>描述</th><th>操作</th>
             </tr>
             </thead>
             <tbody id="dsTableBody">
-            <tr><td colspan="6" style="text-align:center;color:#94a3b8;">加载中...</td></tr>
+            <tr><td colspan="7" style="text-align:center;color:#94a3b8;">加载中...</td></tr>
             </tbody>
         </table>
     </div>
@@ -217,12 +220,12 @@
             const res = await fetch(API, { headers: headers() });
             const json = await res.json();
             if (!json.success) {
-                body.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#b91c1c;">${esc(json.message)}</td></tr>`;
+                body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#b91c1c;">${esc(json.message)}</td></tr>`;
                 return;
             }
             const list = json.data || [];
             if (list.length === 0) {
-                body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;">暂无数据源，请在下方新增</td></tr>';
+                body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;">暂无数据源，请在下方新增</td></tr>';
                 return;
             }
             body.innerHTML = list.map(d => {
@@ -232,6 +235,10 @@
                 const src = d.dynamic
                     ? '<span class="tag tag-dyn">动态</span>'
                     : '<span class="tag tag-builtin">内置</span>';
+                const status = d.available !== false
+                    ? '<span class="tag tag-online">已连接</span>'
+                    : '<span class="tag tag-offline">恢复失败</span>'
+                        + (d.error ? `<div class="status-error">${esc(d.error)}</div>` : '');
                 const del = d.dynamic
                     ? `<button class="btn-ghost" style="padding:5px 12px;font-size:13px;margin-right:6px;" onclick="editDataSource('${encodeURIComponent(d.name)}')">编辑</button>`
                         + `<button class="btn-del" onclick="removeDataSource('${encodeURIComponent(d.name)}')">删除</button>`
@@ -239,6 +246,7 @@
                 return `<tr>
                     <td>${esc(d.name)}</td>
                     <td>${esc(d.type)}</td>
+                    <td>${status}</td>
                     <td>${ro}</td>
                     <td>${src}</td>
                     <td>${esc(d.description)}</td>
@@ -246,7 +254,7 @@
                 </tr>`;
             }).join('');
         } catch (e) {
-            body.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#b91c1c;">加载失败：${esc(e.message)}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#b91c1c;">加载失败：${esc(e.message)}</td></tr>`;
         }
     }
 

@@ -170,6 +170,33 @@ public class KafkaToolService {
         }
     }
 
+    public List<String> listTopicRecords(String datasource, boolean includeInternal) throws Exception {
+        return registry.getKafka(datasource).listTopics(includeInternal);
+    }
+
+    public KafkaConnection.TopicDetail topicDetailRecord(String datasource, String topic) throws Exception {
+        requireText(topic, "topic");
+        return registry.getKafka(datasource).describeTopic(topic);
+    }
+
+    public List<KafkaConnection.ConsumerGroupSummary> consumerGroupRecords(String datasource) throws Exception {
+        return registry.getKafka(datasource).listConsumerGroups();
+    }
+
+    public List<KafkaConnection.KafkaRecordView> peekMessageRecords(
+            String datasource, String topic, Integer partition, int maxMessages, int pollTimeoutMs) throws Exception {
+        requireText(topic, "topic");
+        return registry.getKafka(datasource).peekMessages(topic,
+                partition == null || partition < 0 ? null : partition,
+                normalizeMax(maxMessages), normalizeTimeout(pollTimeoutMs));
+    }
+
+    private void requireText(String value, String name) {
+        if (isBlank(value)) {
+            throw new IllegalArgumentException(name + " 不能为空");
+        }
+    }
+
     /* ====================== 内部工具方法 ====================== */
 
     private int normalizeMax(int max) {

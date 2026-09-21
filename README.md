@@ -16,7 +16,7 @@
 - **Elasticsearch 工具（6 个）**：列索引、查 mapping、统计文档数、DSL 查询，及写入/删除文档
 - **Redis 工具（6 个）**：扫描 key、查看 key 元信息、读取值，及 SET / DEL / EXPIRE
 - **Kafka 工具（4 个，只读）**：列 topic、查 topic 详情、列消费者组及 lag、无副作用抓取最近消息
-- **写操作安全**：依赖 MCP 客户端确认机制 + 只读数据源拦截；关系型 SQL 额外经白名单 + 黑名单 + 注释剥离 + 多语句注入检测 + 标识符校验多层防护
+- **写操作安全**：显式 MCP 破坏性 annotations + 只读数据源硬拦截；关系型 SQL 额外经白名单、黑名单、注释剥离与多语句检测。客户端是否确认取决于客户端实现
 - **访问令牌保护**：可选 `X-Access-Token`，保护 MCP 传输端点与数据源管理 API
 - **可扩展适配器架构**：`DatabaseAdapter` + `DatabaseDialect` 双接口设计，新增关系型数据库类型只需实现两个接口
 
@@ -57,7 +57,7 @@ cd dameng-mcp-server
 mvn clean package -DskipTests
 ```
 
-构建完成后，JAR 文件位于 `target/dameng-mcp-server-2.0.0.jar`。
+构建完成后，JAR 文件位于 `target/dameng-mcp-server-3.0.0.jar`。
 
 ### 运行
 
@@ -69,7 +69,7 @@ mvn clean package -DskipTests
 
 ```bash
 # 直接运行（默认即 stdio 模式）
-java -jar target/dameng-mcp-server-2.0.0.jar
+java -jar target/dameng-mcp-server-3.0.0.jar
 
 # 或通过 Maven 运行
 mvn spring-boot:run
@@ -81,13 +81,13 @@ mvn spring-boot:run
 
 ```bash
 # 启用 http 模式（默认端口 8080）
-java -jar target/dameng-mcp-server-2.0.0.jar --spring.profiles.active=http
+java -jar target/dameng-mcp-server-3.0.0.jar --spring.profiles.active=http
 
 # 或使用环境变量
-SPRING_PROFILES_ACTIVE=http java -jar target/dameng-mcp-server-2.0.0.jar
+SPRING_PROFILES_ACTIVE=http java -jar target/dameng-mcp-server-3.0.0.jar
 
 # 自定义端口
-java -jar target/dameng-mcp-server-2.0.0.jar --spring.profiles.active=http --server.port=9090
+java -jar target/dameng-mcp-server-3.0.0.jar --spring.profiles.active=http --server.port=9090
 ```
 
 启动后：
@@ -149,7 +149,10 @@ curl -X PUT http://localhost:8080/api/datasources/finance-oracle \
 ### 持久化
 
 - 通过 Web 新增的动态数据源会写入嵌入式 H2 数据库，应用重启时自动恢复。
+- Kafka 的 `securityProtocol` 和 `saslMechanism` 会一并持久化；旧版 H2 表在启动时会自动补齐对应可空列。旧记录无法自动恢复原未保存的值，升级后需通过 Web 重新添加或保存一次 Kafka 数据源。
 - H2 数据库文件基础路径由 `mcp.dynamic-datasource-h2` 配置，默认 `${user.home}/.dameng-mcp/datasources`（实际生成 `datasources.mv.db`）。
+- H2 默认启用 `AUTO_SERVER` 以支持多进程共享；测试或明确只有单进程访问时，可将 `mcp.dynamic-datasource-h2-auto-server` 设为 `false`。
+- 启动时连接失败的动态数据源仍会显示在管理页面并标记为“恢复失败”，可直接编辑修复或删除；失败配置不会因保存其他数据源而从 H2 丢失。
 - **密码以明文存储**，请务必：限制数据库文件权限（如 `chmod 600`）、将服务部署在受信内网、使用只读数据库账户。
 
 ### 访问令牌（保护 MCP 端点 + 管理 API）
@@ -208,7 +211,7 @@ spring:
     mcp:
       server:
         name: dameng-mcp-server
-        version: 2.0.0
+        version: 3.0.0
         stdio: true
 
 mcp:
@@ -310,6 +313,7 @@ logging:
 | `mcp.dynamic-datasource-h2` | `${user.home}/.dameng-mcp/datasources` | 动态数据源 H2 库文件基础路径（不含扩展名，实际生成 `datasources.mv.db`） |
 | `mcp.dynamic-datasource-h2-username` | `sa` | H2 账号 |
 | `mcp.dynamic-datasource-h2-password` | （空） | H2 密码。注意：文件库首次创建时固化密码，已建库后需保持一致 |
+| `mcp.dynamic-datasource-h2-auto-server` | `true` | 是否启用 H2 `AUTO_SERVER` 多进程共享模式；测试或单进程环境可关闭 |
 | `mcp.web.access-token` | （空） | 非空时开启访问令牌校验（见上文） |
 
 ## 环境变量
@@ -358,7 +362,7 @@ spring:
     mcp:
       server:
         name: dameng-mcp-server
-        version: 2.0.0
+        version: 3.0.0
         stdio: true
 
 mcp:
@@ -403,7 +407,7 @@ logging:
       "command": "java",
       "args": [
         "-jar",
-        "/path/to/dameng-mcp-server-2.0.0.jar",
+        "/path/to/dameng-mcp-server-3.0.0.jar",
         "--spring.config.location=file:/path/to/your-config/application.yml"
       ]
     }
@@ -422,7 +426,7 @@ logging:
       "command": "java",
       "args": [
         "-jar",
-        "/path/to/dameng-mcp-server-2.0.0.jar",
+        "/path/to/dameng-mcp-server-3.0.0.jar",
         "--spring.config.location=file:/path/to/your-config/application.yml"
       ]
     }
@@ -441,7 +445,7 @@ logging:
       "command": "java",
       "args": [
         "-jar",
-        "/path/to/dameng-mcp-server-2.0.0.jar",
+        "/path/to/dameng-mcp-server-3.0.0.jar",
         "--spring.config.location=file:/path/to/your-config/application.yml"
       ]
     }
@@ -450,82 +454,44 @@ logging:
 ```
 
 > **提示**：
-> - 请将 `/path/to/dameng-mcp-server-2.0.0.jar` 替换为实际的 JAR 文件绝对路径。
+> - 请将 `/path/to/dameng-mcp-server-3.0.0.jar` 替换为实际的 JAR 文件绝对路径。
 > - 请将 `/path/to/your-config/application.yml` 替换为外部配置文件的实际绝对路径。
 > - **单数据源快捷方式**：若仅使用单个达梦数据源，可省略 `--spring.config.location` 参数，并通过 `env` 字段传入 `DM_HOST` / `DM_PORT` / `DM_USERNAME` / `DM_PASSWORD` 环境变量即可。
 
 ## 可用工具列表
 
-> 共 28 个 MCP 工具：关系型数据库 12 个 + Elasticsearch 6 个 + Redis 6 个 + Kafka 4 个。所有工具的 `datasource` 参数均可选，留空时使用对应类型的默认（首个）数据源。
+> v3 共提供 28 个工具。工具名统一为 snake_case；旧 camelCase/v2 名称不再注册。
 
-### 元数据工具（关系型）
+| 类型 | 只读工具 | 写工具 |
+| ---- | -------- | ------ |
+| 通用/关系型 | `datasource_list`、`db_list_schemas`、`db_list_tables`、`db_describe_table`、`db_query`、`db_sample_rows`、`db_table_statistics`、`db_column_statistics` | `db_insert`、`db_update`、`db_delete`、`db_execute_sql` |
+| Elasticsearch | `es_list_indices`、`es_get_mapping`、`es_count_documents`、`es_search` | `es_index_document`、`es_delete_document` |
+| Redis | `redis_scan_keys`、`redis_get_key_info`、`redis_get_value` | `redis_set_value`、`redis_delete_key`、`redis_set_expiry` |
+| Kafka | `kafka_list_topics`、`kafka_describe_topic`、`kafka_list_consumer_groups`、`kafka_peek_messages` | 无 |
 
-| 工具名 | 描述 | 参数 |
-| ------ | ---- | ---- |
-| `list_datasources` | 列出所有可用的数据源连接，包含名称、类型和用途描述 | 无 |
-| `list_schemas` | 列出指定数据源中所有可用的 Schema 名称 | `datasource`（可选）：数据源名称 |
-| `list_tables` | 列出指定 Schema 下的所有表，包含表名和注释 | `datasource`（可选）：数据源名称<br>`schema`（必填）：模式名称 |
-| `describe_table` | 获取表的详细结构信息（列名、类型、可空、默认值、注释） | `datasource`（可选）：数据源名称<br>`schema`（必填）：模式名称<br>`table`（必填）：表名称 |
+列表工具统一接受可选的 `cursor` 和 `limit`（默认 100、最大 500），并在 `meta` 中返回 `returned_count`、`has_more` 和 `next_cursor`。`datasource` 为空时使用对应类型的默认数据源。
 
-### 查询工具
+### v3 返回契约
 
-| 工具名 | 描述 | 参数 |
-| ------ | ---- | ---- |
-| `execute_query` | 执行只读 SQL 查询，仅支持 SELECT 语句 | `datasource`（可选）：数据源名称<br>`sql`（必填）：SQL 查询语句<br>`maxRows`（可选）：最大返回行数，默认 100，上限 500 |
-| `get_sample_data` | 获取指定表的样本数据，快速预览表内容 | `datasource`（可选）：数据源名称<br>`schema`（必填）：模式名称<br>`table`（必填）：表名称<br>`limit`（可选）：样本行数，默认 10，上限 50 |
+所有工具同时返回 JSON `TextContent` 和内容相同的 `structuredContent`，并声明 `outputSchema`：
 
-### 统计工具
+```json
+{
+  "status": "ok",
+  "data": { "items": [] },
+  "warnings": [],
+  "meta": { "duration_ms": 3, "has_more": false },
+  "error": null
+}
+```
 
-| 工具名 | 描述 | 参数 |
-| ------ | ---- | ---- |
-| `get_table_statistics` | 获取表的统计概览（行数、表大小等） | `datasource`（可选）：数据源名称<br>`schema`（必填）：模式名称<br>`table`（必填）：表名称 |
-| `get_column_statistics` | 获取列的统计信息（去重数、空值数、最值） | `datasource`（可选）：数据源名称<br>`schema`（必填）：模式名称<br>`table`（必填）：表名称<br>`column`（必填）：列名称 |
+工具执行失败使用 `isError: true`，稳定错误码包括 `INVALID_ARGUMENT`、`DATASOURCE_NOT_FOUND`、`READ_ONLY`、`SECURITY_REJECTED`、`CONNECTION_FAILED`、`EXECUTION_FAILED` 和 `RESULT_TOO_LARGE`。单项文本默认限制 4096 字符，单次结果限制 65536 字节。
 
-### 写操作工具（关系型）
+### v2 到 v3 名称迁移
 
-| 工具名 | 描述 | 参数 |
-| ------ | ---- | ---- |
-| `execute_insert` | 执行 INSERT 插入操作 ⚠️ | `datasource`（可选）：数据源名称<br>`sql`（必填）：INSERT SQL 语句 |
-| `execute_update` | 执行 UPDATE 更新操作 ⚠️ | `datasource`（可选）：数据源名称<br>`sql`（必填）：UPDATE SQL 语句 |
-| `execute_delete` | 执行 DELETE 删除操作 ⚠️ | `datasource`（可选）：数据源名称<br>`sql`（必填）：DELETE SQL 语句 |
-| `execute_ddl` | 执行 DDL 或通用 SQL（CREATE/ALTER/DROP/TRUNCATE/RENAME/GRANT/REVOKE 等）⚠️ | `datasource`（可选）：数据源名称，**必须为非只读数据源**<br>`sql`（必填）：DDL 或通用 SQL 语句 |
+关系型旧名称统一映射为 `datasource_list` 或 `db_*`；例如 `listDatasources/list_datasources` → `datasource_list`、`executeQuery/execute_query` → `db_query`、`executeDdl/execute_ddl` → `db_execute_sql`。ES、Redis、Kafka 工具按原含义转换为对应的 snake_case 名称，例如 `redisGetKey` → `redis_get_value`、`kafkaPeekMessages` → `kafka_peek_messages`。
 
-> **⚠️ 写操作工具**会在 MCP 客户端弹出确认对话框，用户确认后才会执行；只读数据源会直接拒绝。`execute_ddl` 仅可用于非只读数据源。
-
-### Elasticsearch 工具
-
-| 工具名 | 描述 | 参数 |
-| ------ | ---- | ---- |
-| `esListIndices` | 列出所有索引（名称、健康状态、文档数、存储大小） | `datasource`（可选） |
-| `esGetMapping` | 获取索引 mapping（字段定义） | `datasource`（可选）<br>`index`（必填）：索引名 |
-| `esCount` | 统计索引文档数，可选 Query DSL 按条件统计 | `datasource`（可选）<br>`index`（必填）<br>`query`（可选）：Query DSL JSON |
-| `esSearch` | 在索引上执行 Query DSL 查询 | `datasource`（可选）<br>`index`（必填）<br>`dsl`（可选）：Query DSL JSON<br>`size`（可选）：返回条数，默认 10、上限 100 |
-| `esIndexDocument` | 写入或更新文档 ⚠️ | `datasource`（可选）<br>`index`（必填）<br>`id`（可选）：为空则自动生成<br>`document`（必填）：文档 JSON |
-| `esDeleteDocument` | 删除文档 ⚠️ | `datasource`（可选）<br>`index`（必填）<br>`id`（必填）：文档 ID |
-
-### Redis 工具
-
-| 工具名 | 描述 | 参数 |
-| ------ | ---- | ---- |
-| `redisScanKeys` | 基于 SCAN 扫描匹配模式的 key（避免 KEYS 阻塞） | `datasource`（可选）<br>`pattern`（可选）：如 user:*，为空匹配全部<br>`count`（可选）：默认 50、上限 500 |
-| `redisKeyInfo` | 查看 key 的类型与 TTL | `datasource`（可选）<br>`key`（必填） |
-| `redisGetKey` | 类型感知地读取 key 的值（string/list/set/hash/zset） | `datasource`（可选）<br>`key`（必填） |
-| `redisSet` | 设置字符串 key（SET） ⚠️ | `datasource`（可选）<br>`key`（必填）<br>`value`（必填） |
-| `redisDelete` | 删除 key（DEL） ⚠️ | `datasource`（可选）<br>`key`（必填） |
-| `redisExpire` | 为 key 设置过期时间（EXPIRE，秒） ⚠️ | `datasource`（可选）<br>`key`（必填）<br>`seconds`（必填）：正整数 |
-
-> **⚠️ ES/Redis 写操作**（写入/删除文档、SET/DEL/EXPIRE）同样受只读数据源拦截，只读源上执行将被拒绝。
-
-### Kafka 工具（只读）
-
-| 工具名 | 描述 | 参数 |
-| ------ | ---- | ---- |
-| `kafkaListTopics` | 列出集群中所有 topic 名称 | `datasource`（可选）<br>`includeInternal`（可选）：是否包含内部 topic，默认 false |
-| `kafkaDescribeTopic` | 查看 topic 详情：分区数、各分区 leader/副本/ISR、关键配置 | `datasource`（可选）<br>`topic`（必填）：topic 名称 |
-| `kafkaListConsumerGroups` | 列出消费者组：groupId、状态、成员数、总积压 lag | `datasource`（可选） |
-| `kafkaPeekMessages` | 抓取 topic 最近若干条消息用于诊断（无副作用，不提交 offset） | `datasource`（可选）<br>`topic`（必填）<br>`partition`（可选）：<0 表示全部分区<br>`maxMessages`（可选）：默认 20、上限 500<br>`pollTimeoutMs`（可选）：默认 2000、上限 5000 |
-
-> **Kafka 无副作用保证**：`kafkaPeekMessages` 采用 `assign()` + `seek()` 定位尾部、随机 `group.id`（`dameng-mcp-peek-<UUID>`）、`enable.auto.commit=false`、全程不 commit，读完即关闭 Consumer，**不会污染任何现有消费组的 offset**。Kafka 数据源不提供任何写入/生产类工具。
+Redis 集合和值采用 SCAN 或区间分页，不再全量执行 `SMEMBERS`、`HGETALL`、`LRANGE 0 -1`。Kafka 抓取仍使用 `assign()`、`seek()`、随机 group id 且不提交 offset。
 
 ## 安全机制
 
@@ -559,9 +525,9 @@ logging:
 - DCL：`GRANT`、`REVOKE`
 - 危险操作：`EXEC`、`EXECUTE`、`CALL`、`INTO OUTFILE`、`LOAD DATA`
 
-### DDL / 通用 SQL 安全
+### 通用 SQL 安全
 
-`execute_ddl` 工具使用宽松的安全策略，允许任意 SQL 语句类型，但保留对高危操作的拦截：
+`db_execute_sql` 使用宽松策略，允许任意单条 SQL 语句类型，但保留对高危操作的拦截：
 
 **黑名单（禁止的关键字）：**
 - 存储过程执行：`EXEC`、`EXECUTE`、`CALL`
@@ -580,20 +546,18 @@ logging:
 | 黑名单检查 | 全文禁止关键字扫描 | 拦截危险操作关键字 |
 | 多语句注入检测 | 剥离字符串后检测分号 | 防止 SQL 注入攻击 |
 | 标识符校验 | 仅允许字母/数字/下划线/点号 | 防止拼接注入 |
-| 操作类型匹配 | 工具与 SQL 类型强绑定 | `executeInsert` 只允许 INSERT |
-| DDL 只读拦截 | 只读数据源禁止 DDL | `executeDdl` 仅允许非只读源 |
-| WHERE 条件检测 | UPDATE/DELETE 缺少 WHERE 时告警 | 防止全表操作 |
+| 操作类型匹配 | 专用工具与 SQL 类型强绑定 | `db_insert` 只允许 INSERT |
+| 通用 SQL 只读拦截 | 只读数据源禁止通用 SQL | `db_execute_sql` 仅允许非只读源 |
+| WHERE 条件检测 | UPDATE/DELETE 缺少 WHERE 时告警并继续执行 | 仅提示风险，不阻止全表操作 |
 | 行数限制 | 自动包装 LIMIT/ROWNUM | 防止大结果集 |
 
 ### MCP 客户端确认机制
 
-写操作工具（`execute_insert`、`execute_update`、`execute_delete`、`execute_ddl`）的 `@Tool` 注解中包含明确的**警告描述**。MCP 协议规范要求客户端在执行具有副作用的操作前向用户展示确认对话框。
+所有工具都显式声明 MCP Tool Annotations。只读工具为 `readOnlyHint=true`，写工具为 `readOnlyHint=false`、`destructiveHint=true`。
 
-工作流程：
-1. LLM 生成写入 SQL 并调用写操作工具
-2. MCP 客户端拦截请求，向用户展示 SQL 内容和警告信息
-3. 用户确认后，请求才会发送到服务端执行
-4. 服务端再次进行安全校验后执行
+MCP 规范建议（**SHOULD**）客户端对敏感操作提示用户确认，但协议不强制具体交互模型。本服务无法验证客户端是否展示过确认框；收到合法工具调用后会立即执行。因此 annotations、描述和 `warnings` 都只是风险信号，不是服务端确认机制。
+
+特别注意：`db_update`、`db_delete` 以及 `db_execute_sql` 中无 WHERE 的 UPDATE/DELETE 会记录 WARN 审计日志并在结果中返回 `unsafe_scope=true`，但仍然执行。生产环境必须依靠只读数据源和最小权限数据库账号限制破坏面。
 
 ## 扩展指南
 
@@ -774,4 +738,4 @@ dameng-mcp-server/
    - MySQL：`jdbc:mysql://host:3306/db?useSSL=false&characterEncoding=UTF-8&serverTimezone=UTC`
    - 达梦/Oracle：默认 UTF-8，通常无需额外配置
 
-7. **写操作风险**：写操作工具（INSERT/UPDATE/DELETE/DDL）会实际修改数据库数据和结构。虽然有多层安全防护和客户端确认机制，仍建议在**非生产环境**中先行验证 SQL 的正确性。DDL 操作（如 DROP TABLE）可能不可逆，请格外谨慎。
+7. **写操作风险**：写操作会实际修改数据库数据和结构，客户端不一定展示确认框。建议先在非生产环境验证 SQL，并使用只读或最小权限账号。`db_execute_sql` 可执行 DROP/TRUNCATE 等不可逆操作。

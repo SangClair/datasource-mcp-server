@@ -111,6 +111,26 @@ public class DatabaseStatisticsService {
         }
     }
 
+    public TableStatistics tableStatisticsRecord(String datasource, String schema, String table) {
+        requireText(schema, "schema");
+        requireText(table, "table");
+        return resolveAdapter(datasource).getTableStatistics(schema, table);
+    }
+
+    public ColumnStatistics columnStatisticsRecord(
+            String datasource, String schema, String table, String column) {
+        requireText(schema, "schema");
+        requireText(table, "table");
+        requireText(column, "column");
+        return resolveAdapter(datasource).getColumnStatistics(schema, table, column);
+    }
+
+    private void requireText(String value, String name) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException(name + " 不能为空");
+        }
+    }
+
     /**
      * 根据传入的数据源名称解析出适配器；为空时返回默认适配器。
      */

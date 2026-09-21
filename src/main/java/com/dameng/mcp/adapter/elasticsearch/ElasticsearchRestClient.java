@@ -69,9 +69,13 @@ public class ElasticsearchRestClient implements AutoCloseable {
      * 执行查询：POST /{index}/_search 。jsonDsl 为可选查询体，size 为返回条数上限。
      */
     public JsonNode search(String index, String jsonDsl, int size) {
+        return search(index, jsonDsl, 0, size);
+    }
+
+    public JsonNode search(String index, String jsonDsl, int from, int size) {
         StringBuilder endpoint = new StringBuilder("/").append(encodePathSegment(index)).append("/_search");
         if (size > 0) {
-            endpoint.append("?size=").append(size);
+            endpoint.append("?from=").append(Math.max(from, 0)).append("&size=").append(size);
         }
         String body = (jsonDsl == null || jsonDsl.trim().isEmpty())
                 ? "{\"query\":{\"match_all\":{}}}" : jsonDsl;

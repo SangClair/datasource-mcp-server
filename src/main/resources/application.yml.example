@@ -31,15 +31,23 @@ spring:
     mcp:
       server:
         name: dameng-mcp-server
-        version: 2.0.0
+        version: 3.0.0
 
 # 动态数据源持久化（http 模式下 Web 新增的数据源写入嵌入式 H2 库，重启自动恢复）
 mcp:
+  # MCP 工具分页与上下文保护。超过总输出预算时返回 RESULT_TOO_LARGE。
+  tools:
+    default-page-size: 100
+    max-page-size: 500
+    max-item-chars: 4096
+    max-output-bytes: 65536
   # H2 数据库文件基础路径（不含扩展名）。示例使用项目内相对目录（已被 .gitignore 忽略）。
   dynamic-datasource-h2: ./datasource-mcp/datasources
   # H2 账号密码（默认 sa/空）。注意：文件库首次创建时固化密码，已建库后需保持一致。
   dynamic-datasource-h2-username: sa
   dynamic-datasource-h2-password: ""
+  # 多进程共享同一 H2 文件时保持 true；测试或明确只有单进程访问时可设为 false。
+  dynamic-datasource-h2-auto-server: true
   # Web 管理接口访问令牌（可选）。非空时，REST API 需携带请求头 X-Access-Token。
   # 【请替换为你自己的强随机令牌，留空表示不校验】
   web:

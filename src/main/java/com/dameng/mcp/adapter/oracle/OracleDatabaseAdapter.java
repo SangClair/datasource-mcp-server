@@ -261,8 +261,8 @@ public class OracleDatabaseAdapter implements DatabaseAdapter {
         String validatedSql = securityValidator.validateDdl(sql);
         log.debug("executeRaw SQL: {}", validatedSql);
         try {
-            Boolean result = jdbcTemplate.execute(validatedSql);
-            return result == null || result;
+            jdbcTemplate.execute(validatedSql);
+            return true;
         } catch (DataAccessException e) {
             log.error("DDL/通用 SQL 执行失败：{}", validatedSql, e);
             throw new RuntimeException("DDL/通用 SQL 执行失败：" + e.getMessage(), e);

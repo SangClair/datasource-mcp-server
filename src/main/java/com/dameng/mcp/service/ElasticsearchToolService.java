@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 public class ElasticsearchToolService {
 
     private static final int DEFAULT_SEARCH_SIZE = 10;
-    private static final int LIMIT_SEARCH_SIZE = 100;
+    private static final int LIMIT_SEARCH_SIZE = 500;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -172,6 +172,49 @@ public class ElasticsearchToolService {
         } catch (Exception e) {
             log.error("esDeleteDocument 执行失败：datasource={}, index={}, id={}", datasource, index, id, e);
             return "从索引 [" + index + "] 删除文档 [" + id + "] 失败：" + safeMessage(e);
+        }
+    }
+
+    public JsonNode listIndicesRecord(String datasource) {
+        return registry.getElasticsearch(datasource).listIndices();
+    }
+
+    public JsonNode mappingRecord(String datasource, String index) {
+        requireText(index, "index");
+        return registry.getElasticsearch(datasource).getMapping(index);
+    }
+
+    public long countRecord(String datasource, String index, String query) {
+        requireText(index, "index");
+        JsonNode result = registry.getElasticsearch(datasource).count(index, query);
+        return result != null && result.has("count") ? result.get("count").asLong() : 0L;
+    }
+
+    public JsonNode searchRecord(String datasource, String index, String dsl, int from, int size) {
+        requireText(index, "index");
+        return registry.getElasticsearch(datasource).search(index, dsl, Math.max(from, 0), normalizeSize(size));
+    }
+
+    public JsonNode indexDocumentRecord(String datasource, String index, String id, String document) {
+        requireText(index, "index");
+        requireText(document, "document");
+        try {
+            MAPPER.readTree(document);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("document 必须是合法 JSON", e);
+        }
+        return registry.getElasticsearch(datasource).indexDocument(index, id, document);
+    }
+
+    public JsonNode deleteDocumentRecord(String datasource, String index, String id) {
+        requireText(index, "index");
+        requireText(id, "id");
+        return registry.getElasticsearch(datasource).deleteDocument(index, id);
+    }
+
+    private void requireText(String value, String name) {
+        if (isBlank(value)) {
+            throw new IllegalArgumentException(name + " 不能为空");
         }
     }
 

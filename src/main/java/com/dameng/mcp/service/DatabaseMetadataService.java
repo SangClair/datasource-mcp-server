@@ -178,6 +178,35 @@ public class DatabaseMetadataService {
         }
     }
 
+    public List<DataSourceInfo> listDatasourceRecords() {
+        return registry.listDataSources();
+    }
+
+    public List<String> listSchemaRecords(String datasource) {
+        return resolveAdapter(datasource).listSchemas();
+    }
+
+    public List<TableInfo> listTableRecords(String datasource, String schema) {
+        requireText(schema, "schema");
+        return resolveAdapter(datasource).listTables(schema);
+    }
+
+    public TableDefinition describeTableRecord(String datasource, String schema, String table) {
+        requireText(schema, "schema");
+        requireText(table, "table");
+        return resolveAdapter(datasource).describeTable(schema, table);
+    }
+
+    public String resolvedDatasource(String datasource) {
+        return displayDatasource(datasource);
+    }
+
+    private void requireText(String value, String name) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException(name + " 不能为空");
+        }
+    }
+
     /**
      * 根据传入的数据源名称解析出适配器；为空时返回默认适配器。
      */
